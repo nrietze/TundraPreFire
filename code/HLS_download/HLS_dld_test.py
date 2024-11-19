@@ -1,3 +1,4 @@
-print("Hello world")
+import earthaccess
+earthaccess.login(persist=True)
 
 
