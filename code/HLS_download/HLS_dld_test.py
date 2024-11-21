@@ -16,6 +16,8 @@ import rioxarray as rxr
 import hvplot.xarray
 import hvplot.pandas
 import earthaccess
+hvplot.extension('bokeh')
+from bokeh.plotting import show
 
 # Configure Earthaccess
 auth = earthaccess.Auth()
@@ -31,12 +33,12 @@ bbox = tuple(list(aois.total_bounds))
 temporal = ("2020-06-01T00:00:00", "2020-06-30T23:59:59")
 
 # Get results
-max_img = 100 # nr. of maximum returned images
+MAX_IMG = 100 # nr. of maximum returned images
 results = earthaccess.search_data(
     short_name=['HLSL30','HLSS30'],
     bounding_box=bbox,
     temporal=temporal,
-    count=max_img
+    count=MAX_IMG
 )
 
 pd.json_normalize(results).head(5)
@@ -47,7 +49,7 @@ hls_results_urls = [granule.data_links() for granule in results]
 
 browse_urls = [granule.dataviz_links()[0] for granule in results] # 0 retrieves only the https links
 
-# GDAL configurations used to successfully access LP DAAC Cloud Assets via vsicurl 
+# GDAL configurations used to successfully access LP DAAC Cloud Assets via vsicurl
 gdal.SetConfigOption('GDAL_HTTP_COOKIEFILE','~/cookies.txt')
 gdal.SetConfigOption('GDAL_HTTP_COOKIEJAR', '~/cookies.txt')
 gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN','EMPTY_DIR')
@@ -68,18 +70,18 @@ else:
     evi_bands = ['B05', 'B04', 'B02', 'Fmask'] # NIR RED BLUE for L30
 
 # Subset the assets in the item down to only the desired bands
-for a in h: 
+for a in h:
     if any(b in a for b in evi_bands):
         evi_band_links.append(a)
 
 # Use vsicurl to load the data directly into memory (be patient, may take a few seconds)
-chunk_size = dict(band=1, x=512, y=512) # Tiles have 1 band and are divided into 512x512 pixel chunks
+# Tiles have 1 band and are divided into 512x512 pixel chunks
+chunk_size = dict(band=1, x=512, y=512)
 for e in evi_band_links:
-    print(e)
     # Open and build datasets
     if e.rsplit('.', 2)[-2] == evi_bands[0]:      # NIR index
         nir = rxr.open_rasterio(e, chunks=chunk_size, masked=True).squeeze('band', drop=True)
-        nir.attrs['scale_factor'] = 0.0001        # hard coded the scale_factor attribute 
+        nir.attrs['scale_factor'] = 0.0001        # hard coded the scale_factor attribute
     elif e.rsplit('.', 2)[-2] == evi_bands[1]:    # red index
         red = rxr.open_rasterio(e, chunks=chunk_size, masked=True).squeeze('band', drop=True)
         red.attrs['scale_factor'] = 0.0001        # hard coded the scale_factor attribute
@@ -92,4 +94,83 @@ for e in evi_band_links:
 
 print("The COGs have been loaded into memory!")
 
-nir.spatial_ref.crs_wkt
+# reproject AOIs to HLS CRS
+aoiUTM = aois.to_crs(nir.spatial_ref.crs_wkt)
+
+# Crop data with aois and include any pixels touched by the polygon
+nir_cropped = nir.rio.clip(aoiUTM.geometry.values, aoiUTM.crs, all_touched=True)
+
+# Define function to scale 
+def scaling(band):
+    scale_factor = band.attrs['scale_factor'] 
+    band_out = band.copy()
+    band_out.data = band.data*scale_factor
+    band_out.attrs['scale_factor'] = 1
+    return(band_out)
+
+nir_cropped_scaled = scaling(nir_cropped)
+
+# Red
+red_cropped = red.rio.clip(aoiUTM.geometry.values, aoiUTM.crs, all_touched=True)
+red_cropped_scaled = scaling(red_cropped)
+# Blue
+blue_cropped = blue.rio.clip(aoiUTM.geometry.values, aoiUTM.crs, all_touched=True)
+blue_cropped_scaled = scaling(blue_cropped)
+# Fmask
+fmask_cropped = fmask.rio.clip(aoiUTM.geometry.values, aoiUTM.crs, all_touched=True)
+
+print('Data is loaded and scaled!')
+
+def calc_evi(red, blue, nir):
+    # Create EVI xarray.DataArray that has the same coordinates and metadata
+    evi = red.copy()
+    # Calculate the EVI
+    evi_data = 2.5 * ((nir.data - red.data) / (nir.data + 6.0 * red.data - 7.5 * blue.data + 1.0))
+    # Replace the Red xarray.DataArray data with the new EVI data
+    evi.data = evi_data
+    # exclude the inf values
+    evi = xr.where(evi != np.inf, evi, np.nan, keep_attrs=True)
+    # change the long_name in the attributes
+    evi.attrs['long_name'] = 'EVI'
+    evi.attrs['scale_factor'] = 1
+    return evi
+
+# Generate EVI array
+evi_cropped = calc_evi(red_cropped_scaled, blue_cropped_scaled, nir_cropped_scaled)
+
+# Quick plot of EVI in aoi
+img = evi_cropped.hvplot.image(cmap='YlGn', 
+                               frame_width= 800, 
+                               fontscale=1.6, 
+                               crs='EPSG:32610', 
+                               tiles='ESRI'
+                               ).opts(title=f'HLS-derived EVI, {evi_cropped.SENSING_TIME}')
+
+show(hvplot.render(img))
+
+# define bits to mask out
+"""
+7-6 = aerosols
+5 = water
+4 = snow/ice
+3 = cloud shadow
+2 = cloud/shadow adjacent
+1 = cloud
+0 = cirrus
+"""
+bit_nums = [1,2,3,4,5]
+
+# Define bit masking function
+def create_quality_mask(quality_data, bit_nums: list = [1, 2, 3, 4, 5]):
+    """
+    Uses the Fmask layer and bit numbers to create a binary mask of good pixels.
+    By default, bits 1-5 are used.
+    """
+    mask_array = np.zeros((quality_data.shape[0], quality_data.shape[1]))
+    # Remove/Mask Fill Values and Convert to Integer
+    quality_data = np.nan_to_num(quality_data, 0).astype(np.int8)
+    for bit in bit_nums:
+        # Create a Single Binary Mask Layer
+        mask_temp = np.array(quality_data) & 1 << bit > 0
+        mask_array = np.logical_or(mask_array, mask_temp)
+    return mask_array
