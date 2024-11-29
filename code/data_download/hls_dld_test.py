@@ -25,12 +25,12 @@ auth.login(strategy = "netrc")
 print(auth.authenticated)
 
 # Load AOIs
-aois = gp.read_file("../data/feature_layers/aois_test.geojson")
+aois = gp.read_file("./data/feature_layers/roi.geojson")
 
 bbox = tuple(list(aois.total_bounds))
 
 # Define time window
-temporal = ("2020-06-01T00:00:00", "2020-06-30T23:59:59")
+temporal = ("2020-05-01T00:00:00", "2020-08-31T23:59:59")
 
 # Get results
 MAX_IMG = 100 # nr. of maximum returned images
@@ -174,3 +174,20 @@ def create_quality_mask(quality_data, bit_nums: list = [1, 2, 3, 4, 5]):
         mask_temp = np.array(quality_data) & 1 << bit > 0
         mask_array = np.logical_or(mask_array, mask_temp)
     return mask_array
+
+# Apply mask and filter cropped image
+mask_layer = create_quality_mask(fmask_cropped.data, bit_nums)
+evi_cropped_qf = evi_cropped.where(~mask_layer)
+
+# Export to COG tiffs
+original_name = evi_band_links[0].split('/')[-1]
+
+# Generate output name from the original filename
+out_name = f"{original_name.split('v2.0')[0]}v2.0_EVI_cropped.tif"
+
+out_folder = './data/hls/'
+evi_cropped.rio.to_raster(raster_path=f'{out_folder}{out_name}', driver='COG')
+
+# delete unused files
+del evi_cropped, out_folder, out_name, red_cropped, blue_cropped, nir_cropped, red_cropped_scaled, blue_cropped_scaled, nir_cropped_scaled
+
