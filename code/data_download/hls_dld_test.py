@@ -10,11 +10,7 @@ import geopandas as gp
 from osgeo import gdal
 import xarray as xr
 import rioxarray as rxr
-import hvplot.xarray
-import hvplot.pandas
 import earthaccess
-hvplot.extension('bokeh')
-from bokeh.plotting import show
 
 # GDAL configurations used to successfully access LP DAAC Cloud Assets via vsicurl
 gdal.SetConfigOption('GDAL_HTTP_COOKIEFILE','~/cookies.txt')
@@ -37,7 +33,7 @@ BAND_INDEX = ["NDMI","NDVI"]
 
 # Define time search window
 START_DATE = "2020-05-01T00:00:00"
-END_DATE = "2020-08-31T23:59:59"
+END_DATE = "2020-09-30T23:59:59"
 
 # nr. of maximum returned images
 MAX_IMG = 100 
@@ -46,7 +42,7 @@ MAX_IMG = 100
 chunk_size = dict(band=1, x=512, y=512)
 
 # Load AOIs
-aois = gp.read_file("./data/feature_layers/roi.geojson")
+aois = gp.read_file("/data/nrietz/feature_layers/roi.geojson")
 bbox = tuple(list(aois.total_bounds))
 print("AOI loaded.")
 
@@ -124,13 +120,13 @@ def load_rasters(index_band_links, band_name,
         
         raster = raster.rio.clip(regionUTM.geometry.values, regionUTM.crs, all_touched=True)
     
-    print("The COGs have been loaded into memory!")
+    # print("The COGs have been loaded into memory!")
 
     if hls_band_name != "Fmask":
         raster.attrs['scale_factor'] = 0.0001  # hard coded scale factor
         raster = scaling(raster)
     
-    print('Data is loaded and scaled!')
+    # print('Data is loaded and scaled!')
 
     # Return the raster
     return raster
@@ -175,6 +171,36 @@ def calc_index(urls, INDEX_NAME, bit_nums, region = None):
         spectral_index_data = (nir - swir1) / (nir + swir1)
         
         SCALE_FACTOR = 1
+
+    elif INDEX_NAME == "NDVI":
+        # load spectral bands needed for NDMI
+        nir = load_rasters(urls, "NIR",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        red = load_rasters(urls, "RED",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        spectral_index = nir.copy()
+        spectral_index_data = (nir - red) / (nir + red)
+        
+        SCALE_FACTOR = 1
+        
+    elif INDEX_NAME == "NBR":
+        # load spectral bands needed for NDMI
+        nir = load_rasters(urls, "NIR",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        swir2 = load_rasters(urls, "SWIR2",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        spectral_index = nir.copy()
+        spectral_index_data = (nir - swir2) / (nir + swir2)
+        
+        SCALE_FACTOR = 1
         
     elif INDEX_NAME == "EVI":
         # Create EVI xarray.DataArray that has the same coordinates and metadata
@@ -217,9 +243,9 @@ results = earthaccess.search_data(
 print("Retrieving granules...")
 hls_results_urls = [granule.data_links() for granule in results]
 
-browse_urls = [granule.dataviz_links()[0] for granule in results] # 0 retrieves only the https links
+print(f"{len(hls_results_urls)} granules found.")
 
-h = hls_results_urls[10]
+browse_urls = [granule.dataviz_links()[0] for granule in results] # 0 retrieves only the https links
 
 # define bits to mask out
 """
@@ -231,56 +257,45 @@ h = hls_results_urls[10]
 1 = cloud
 0 = cirrus
 """
-bit_nums = [0,1,2,3,4,5,6,7]
+bit_nums = [0,1,2,3,4,5]
 
 # Generate EVI array
+# h = hls_results_urls[10]
 # ndmi = calc_index(h, "NDMI", region = aois, bit_nums = bit_nums)
-# ndmi = calc_index(hls_results_urls, "NDMI", region = aois, bit_nums = bit_nums)
-
-# Quick plot of EVI in aoi
-# img = ndmi.hvplot.image(cmap='YlGn', 
-#                                frame_width= 800, 
-#                                fontscale=1.6, 
-#                                crs='EPSG:32610', 
-#                                tiles='ESRI'
-#                                ).opts(title=f'HLS-derived EVI, {ndmi.SENSING_TIME}')
-
-# show(hvplot.render(img))
 
 # %% automate and run over all found granules
 # output directory
-out_folder = './data/raster/hls/'
-
-INDEX_NAME = "NDMI"
+out_folder = '/data/nrietz/raster/hls/'
 
 for j, h in enumerate(hls_results_urls):
     original_name = h[0].split('/')[-1]
 
-    # Generate output name from the original filename
-    out_name = f"{original_name.split('v2.0')[0]}v2.0_{INDEX_NAME}_cropped.tif"
+    print(f"Processing: {original_name.split('v2.0')[0]}", end = "\n")
     
-    print(out_name, end = "\n")
-    
-    out_path = f'{out_folder}{out_name}'
-    
-    # Check if file already exists in output directory, if yes--skip that file and move to the next observation
-    if os.path.exists(out_path):
-        print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
-        continue
-    
-    # Calculate spectral index
-    spectral_index = calc_index(h, INDEX_NAME, 
-                                region = aois, 
-                                bit_nums = bit_nums)
-    
-    print("Spectral index calculated.", end = "\n")
-    
-    # Remove any observations that are entirely fill value
-    if np.nansum(spectral_index.data) == 0.0:
-        print(f"File: {h[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
-        continue
-    
-    # Export to COG tiffs
-    spectral_index.rio.to_raster(raster_path = out_path, driver = 'COG')
+    for INDEX_NAME in BAND_INDEX:
+        # Generate output name from the original filename
+        out_name = f"{original_name.split('v2.0')[0]}v2.0_{INDEX_NAME}_cropped.tif"
+        
+        out_path = f'{out_folder}{out_name}'
+        
+        # Check if file already exists in output directory, if yes--skip that file and move to the next observation
+        if os.path.exists(out_path):
+            print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
+            continue
+        
+        # Calculate spectral index
+        spectral_index = calc_index(h, INDEX_NAME, 
+                                    region = aois, 
+                                    bit_nums = bit_nums)
+        
+        print(f"{INDEX_NAME} index calculated.", end = "\n")
+        
+        # Remove any observations that are entirely fill value
+        if np.nansum(spectral_index.data) == 0.0:
+            print(f"File: {h[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
+            continue
+        
+        # Export to COG tiffs
+        spectral_index.rio.to_raster(raster_path = out_path, driver = 'COG')
     
     print(f"Processed file {j+1} of {len(hls_results_urls)}")
