@@ -4,6 +4,9 @@
 **/*.tif.ovr
 **/*.tif.aux.xml
 
+# feature layers
+**/*.gpkg
+
 # History files
 .Rhistory
 .Rapp.history
