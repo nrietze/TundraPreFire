@@ -9,7 +9,7 @@ library(terra)
 library(tidyterra)
 library(tidyverse)
 library(cowplot)
-
+# 
 ## Section: Load and prepare data ----
 #.....................................
 

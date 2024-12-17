@@ -1,8 +1,9 @@
-# tif files (save space)
+# raster files (save space)
 **/*.tif
 **/*.tif.aux
 **/*.tif.ovr
 **/*.tif.aux.xml
+*.nc
 
 # feature layers
 **/*.gpkg

@@ -32,17 +32,17 @@ if auth.authenticated:
 BAND_INDEX = ["NDMI","NDVI"]
 
 # Define time search window
-START_DATE = "2020-05-01T00:00:00"
-END_DATE = "2020-09-30T23:59:59"
+START_DATE = "2020-05-10T00:00:00"
+END_DATE = "2020-08-30T23:59:59"
 
 # nr. of maximum returned images
-MAX_IMG = 100 
+MAX_IMG = 10000
 
 # define chunk size for data loading
 chunk_size = dict(band=1, x=512, y=512)
 
 # Load AOIs
-aois = gp.read_file("/data/nrietz/feature_layers/roi.geojson")
+aois = gp.read_file("data/feature_layers/roi.geojson")
 bbox = tuple(list(aois.total_bounds))
 print("AOI loaded.")
 
@@ -265,7 +265,7 @@ bit_nums = [0,1,2,3,4,5]
 
 # %% automate and run over all found granules
 # output directory
-out_folder = '/data/nrietz/raster/hls/'
+out_folder = 'data/raster/hls/'
 
 for j, h in enumerate(hls_results_urls):
     original_name = h[0].split('/')[-1]
