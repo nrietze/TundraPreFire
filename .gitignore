@@ -3,6 +3,8 @@
 **/*.tif.aux
 **/*.tif.ovr
 **/*.tif.aux.xml
+**/*.cpg
+**/*.dbf
 *.nc
 
 # feature layers
@@ -10,6 +12,7 @@
 **/*.gdb
 **/*.kml
 **/*.lyrx
+data/feature_layers/MGRS_centroids.geojson
 
 **/*.csv
 
@@ -77,3 +80,4 @@ rsconnect/
 *.DS_Store
 
 *.dodsrc
+code/exploratory/HLS_Tutorial.html
