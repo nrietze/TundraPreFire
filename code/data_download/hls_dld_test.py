@@ -29,11 +29,13 @@ if auth.authenticated:
 # %% User configurations
 
 # Define bands/indices to download
-BAND_INDEX = ["NBR"]
+BAND_INDEX = ["GEMI"]
 
 # Define time search window
-START_DATE = "2019-09-12T00:00:00"
-END_DATE = "2019-09-13T23:59:59"
+START_DATE = "2020-09-10T00:00:00"
+# START_DATE = "2019-09-12T00:00:00"
+END_DATE = "2020-09-12T23:59:59"
+# END_DATE = "2019-09-13T23:59:59"
 
 # nr. of maximum returned images
 MAX_IMG = 10000
@@ -88,7 +90,7 @@ def create_quality_mask(quality_data, bit_nums: list = [1, 2, 3, 4, 5]):
 
 # Define raster loading function
 def load_rasters(index_band_links, band_name,
-                 band_dict, 
+                 band_dict = {"Fmask" : "Fmask"}, 
                  region = None, 
                  chunk_size = dict(band=1, x=512, y=512)):
     """Function to load COG rasters of selected bands into memory.
@@ -202,11 +204,20 @@ def calc_index(urls, INDEX_NAME, bit_nums, region = None):
         
         SCALE_FACTOR = 1
         
-    elif INDEX_NAME == "EVI":
-        # Create EVI xarray.DataArray that has the same coordinates and metadata
-        evi = red.copy()
-        # Calculate the EVI
-        evi_data = 2.5 * ((nir.data - red.data) / (nir.data + 6.0 * red.data - 7.5 * blue.data + 1.0))
+    elif INDEX_NAME == "GEMI":
+        # load spectral bands needed for NDMI
+        nir = load_rasters(urls, "NIR",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        red = load_rasters(urls, "RED",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        spectral_index = nir.copy()
+        
+        term1 = (2 * (nir^2 - red^2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
+        spectral_index_data = term1 * (1 - 0.25 * term1) - ((red - 0.125) / (1 - red))
         
         SCALE_FACTOR = 1
         
@@ -297,5 +308,14 @@ for j, h in enumerate(hls_results_urls):
         
         # Export to COG tiffs
         spectral_index.rio.to_raster(raster_path = out_path, driver = 'COG')
+    
+    # Load and export scene's fmask
+    fmask = load_rasters(h, "Fmask",
+                            region = aois,
+                            chunk_size = dict(band=1, x=512, y=512))
+    
+    out_name = f"{original_name.split('v2.0')[0]}v2.0_Fmask_cropped.tif"
+        
+    fmask.rio.to_raster(raster_path = f'{out_folder}{out_name}', driver = 'COG')
     
     print(f"Processed file {j+1} of {len(hls_results_urls)}")
