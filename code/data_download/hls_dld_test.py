@@ -216,7 +216,7 @@ def calc_index(urls, INDEX_NAME, bit_nums, region = None):
         
         spectral_index = nir.copy()
         
-        term1 = (2 * (nir^2 - red^2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
+        term1 = (2 * (nir**2 - red**2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
         spectral_index_data = term1 * (1 - 0.25 * term1) - ((red - 0.125) / (1 - red))
         
         SCALE_FACTOR = 1
