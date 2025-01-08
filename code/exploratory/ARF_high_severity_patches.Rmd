@@ -1,0 +1,68 @@
+---
+title: "High Severity Patches in the ARF"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(terra)
+library(tidyterra)
+library(tidyverse)
+library(cowplot)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+```{r}
+DATA_PATH <- "C:/data/3_fire_data/burned_area"
+
+# ARF bounding box (sketch)
+arf_box <- ext(108915, 170195, 2093175, 2174965)
+
+# load MTBS severity class raster
+mtbs_ak_2007 <- rast(paste0(DATA_PATH,"/mtbs/MTBS_BSmosaics/2007/mtbs_AK_2007/mtbs_AK_2007.tif"))
+
+# load Loboda dNBR data
+f1 <- paste0(DATA_PATH,"/ABoVE/dNBR/ABoVE_Fire_Severity_dNBR_1564/data/ABoVE.dNBR.2007.Bh08v02.003.2018117192729.tif")
+f2 <- paste0(DATA_PATH,"/ABoVE/dNBR/ABoVE_Fire_Severity_dNBR_1564/data/ABoVE.dNBR.2007.Bh08v03.003.2018117192735.tif")
+
+# reproject and cut to ARF
+dnbr <- merge(rast(f1), rast(f2)) %>% 
+  project(crs(mtbs_ak_2007)) %>% 
+  crop(arf_box)
+
+mtbs_arf <- crop(mtbs_ak_2007,arf_box)
+
+cls <- data.frame(id = 1:5,class = c("unburned to low","low",
+                                     "moderate","high",
+                                     "increased greenness"))
+levels(mtbs_arf) <- cls
+```
+```{r}
+
+# Plots
+p1 <- ggplot() +
+  geom_spatraster(data = mtbs_arf) +
+  scale_fill_viridis_d(option = "inferno",
+                       name = "MTBS class") +
+  theme_cowplot()
+
+p2 <- ggplot() +
+  geom_spatraster(data = dnbr *0.001) +
+  scale_fill_viridis_c(option = "inferno",
+                       name = "dNBR",
+                       limits = c(0,1)
+                       ) +
+  theme_cowplot()
+
+cowplot::plot_grid(p1,p2,
+                   align = "hv",
+                   ncol = 1)
+
+ggsave2("../../figures/ARF_severity_data.png",
+        width = 8, height = 10,bg = "white")
+
+```
+

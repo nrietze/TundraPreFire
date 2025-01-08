@@ -1,0 +1,132 @@
+---
+title: "Extracting data and analysis of dNBR"
+output: html_notebook
+---
+
+Data pre-processing is handled in python. Sampling pixel values and data analysis in R.
+```{r}
+library(terra)
+library(tidyterra)
+library(tidyverse)
+library(cowplot)
+library(patchwork)
+print(getwd())
+```
+
+## Loading and preparing data:
+```{r}
+dnbr <- rast("./data/raster/hls/dNBR/HLS.L30.T54WXE.2020254T020729.v2.0_dNBR_cropped.tif") * 1000
+
+# Load features (fire perimeters and ROIs)
+fire_perimeters_2020 <- vect("./data/feature_layers/fire_atlas/final_viirs2020.gpkg")
+roi <- vect("./data/feature_layers/roi.geojson")
+
+fire_within_roi <- terra::intersect(fire_perimeters_2020, roi)
+plot(fire_within_roi,"duration")
+```
+## Dissolve fire perimeters that lie in the ROI to one
+```{r}
+fire_union_roi <- terra::aggregate(fire_within_roi) %>% 
+  project(crs(dnbr))
+plot(fire_union_roi)
+```
+```{r}
+binwidth <- 20
+
+dnbr_in_perimeter <- mask(dnbr, fire_union_roi, updatevalue = NA)
+
+p1 <- ggplot() +
+  geom_spatraster(data = dnbr_in_perimeter) +
+  scale_fill_viridis_c(option = "inferno",
+                       na.value = "white",
+                       name = "dNBR") +
+  theme_cowplot()
+
+p2 <- ggplot(data = dnbr_in_perimeter, aes(x = NBR)) +
+  geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
+  xlim(c(-500,1000)) +
+  labs(
+      title = "Histogram of dNBR",
+      x = "dNBR Values",
+      y = "Frequency"
+    ) +
+  theme_cowplot()
+
+p1 + p2
+
+ggsave2("figures/expl_dNBR_hist.png",bg = "white")
+```
+
+## Extract pixels within fire perimeter
+```{r}
+# Set dNBR bin size for sampling (dNBR * 1000)
+binwidth <- 20
+
+# get bins for the raster
+bins <- seq(minmax(dnbr_in_perimeter)[1],minmax(dnbr_in_perimeter)[2],binwidth)
+
+# Set proportion of sampled values per bin
+nsample <- 1e4
+
+# Create binned raster for sampling
+rast_binned <- classify(dnbr_in_perimeter,
+                        bins, 
+                        include.lowest=TRUE,
+                        brackets=TRUE)
+
+
+# Sample n pixels and mask with burn perimeter
+random_points <- spatSample(rast_binned, nsample, 
+                            # method = "stratified",
+                            method = "random",
+                            values = FALSE,
+                            as.points = TRUE) %>% 
+  mask(fire_union_roi) 
+
+# Extract data at random points 
+dnbr_sample <- terra::extract(dnbr, random_points,ID = FALSE, xy = TRUE) %>% 
+  drop_na() 
+
+p3 <- ggplot(data = dnbr_sample, aes(x = NBR)) +
+  geom_histogram(binwidth = binwidth, color = "black", fill = "orange") +
+  xlim(c(-500,1000)) +
+  labs(
+      title = "Histogram of dNBR (sampled)",
+      x = "dNBR Values",
+      y = "Frequency"
+    ) +
+  theme_cowplot()
+
+p2 / p3 
+ggsave2("figures/expl_dNBR_hist_vs_sampled.png",bg = "white")
+
+# Export dataframe to csv
+write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
+```
+
+## Plot results:
+
+```{r}
+library(spdep)
+
+knn <- knn2nb(knearneigh(dnbr_sample[c("x","y")], k = 5))
+
+# Convert neighbors to weights
+weights <- nb2listw(knn, style = "W")
+
+# Compute Moran's I
+moran_i <- moran.test(dnbr_sample$NBR, listw = weights)
+
+ggplot() +
+  geom_spatraster(data = dnbr_in_perimeter) +
+  scale_fill_viridis_c(option = "inferno",
+                       na.value = "white",
+                       name = "dNBR") +
+  geom_spatvector(data = random_points) +
+  labs(title = sprintf("Randomly samlped points\nMoran's I: %.2f(p-value: %.4f)", 
+       moran_i$estimate[1],moran_i$p.value)) +                   
+  theme_cowplot()
+
+ggsave2("figures/stratified_random_points_moranI.png",bg = "white")
+
+```

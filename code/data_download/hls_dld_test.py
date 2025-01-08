@@ -29,11 +29,11 @@ if auth.authenticated:
 # %% User configurations
 
 # Define bands/indices to download
-BAND_INDEX = ["NDMI","NDVI"]
+BAND_INDEX = ["NBR"]
 
 # Define time search window
-START_DATE = "2020-05-10T00:00:00"
-END_DATE = "2020-08-30T23:59:59"
+START_DATE = "2019-09-12T00:00:00"
+END_DATE = "2019-09-13T23:59:59"
 
 # nr. of maximum returned images
 MAX_IMG = 10000

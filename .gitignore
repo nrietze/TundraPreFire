@@ -7,6 +7,11 @@
 
 # feature layers
 **/*.gpkg
+**/*.gdb
+**/*.kml
+**/*.lyrx
+
+**/*.csv
 
 # History files
 .Rhistory
