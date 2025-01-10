@@ -35,7 +35,7 @@ aois = gp.read_file("./data/feature_layers/roi.geojson")
 bbox = list(aois.total_bounds)
 select_roi = ee.Geometry.Rectangle(bbox)
 MAX_CLOUD_COVER = 60
-EPSG = 'EPSG:32655'
+EPSG = 'EPSG:32654'
 PIXEL_RESOLUTION = 30
 ROI_FILENAME = 'KYT_TEST'
 

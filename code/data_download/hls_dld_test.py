@@ -29,12 +29,15 @@ if auth.authenticated:
 # %% User configurations
 
 # Define bands/indices to download
-BAND_INDEX = ["GEMI"]
+BAND_INDEX = ["NDVI"]
 
 # Define time search window
-START_DATE = "2020-09-10T00:00:00"
+START_DATE = "2020-06-02T00:00:00"
+# START_DATE = "2020-09-10T00:00:00"
 # START_DATE = "2019-09-12T00:00:00"
-END_DATE = "2020-09-12T23:59:59"
+
+END_DATE = "2020-06-15T23:59:59"
+# END_DATE = "2020-09-12T23:59:59"
 # END_DATE = "2019-09-13T23:59:59"
 
 # nr. of maximum returned images
@@ -45,8 +48,26 @@ chunk_size = dict(band=1, x=512, y=512)
 
 # Load AOIs
 aois = gp.read_file("data/feature_layers/roi.geojson")
-bbox = tuple(list(aois.total_bounds))
+
+fire_perimeters_2020 = gp.read_file("data/feature_layers/fire_atlas/final_viirs2020.gpkg")
+
+# Intersect aoi & perimeter
+fire_within_roi = gp.overlay(fire_perimeters_2020, aois,
+                             how='intersection')
+
+bbox = tuple(list(fire_within_roi.total_bounds))
 print("AOI loaded.")
+
+# Load MGRS tile centroids to find msot suitable HLS tile
+mgrs_tile_centroids = gp.read_file("data/feature_layers/MGRS_centroids.geojson")
+
+# Find best UTM tile for the feature by identifying closest tile centroid to feature centroid
+sindex = mgrs_tile_centroids.geometry.sindex.nearest(aois.geometry.centroid)
+
+# Query tile in all MGRS tiles
+nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:] 
+
+optimal_tile_name = nearest_mgrs_tile_centroid.Name.item()
 
 # Define time window
 temporal = (START_DATE, END_DATE)
@@ -93,7 +114,8 @@ def load_rasters(index_band_links, band_name,
                  band_dict = {"Fmask" : "Fmask"}, 
                  region = None, 
                  chunk_size = dict(band=1, x=512, y=512)):
-    """Function to load COG rasters of selected bands into memory.
+    """
+    Function to load COG rasters of selected bands into memory.
 
     Args:
         index_band_links (list): List of URLs
@@ -175,7 +197,7 @@ def calc_index(urls, INDEX_NAME, bit_nums, region = None):
         SCALE_FACTOR = 1
 
     elif INDEX_NAME == "NDVI":
-        # load spectral bands needed for NDMI
+        # load spectral bands needed for NDVI
         nir = load_rasters(urls, "NIR",
                            band_dict = HLS_BAND_DICT, region = region,
                            chunk_size = chunk_size)
@@ -186,6 +208,21 @@ def calc_index(urls, INDEX_NAME, bit_nums, region = None):
         
         spectral_index = nir.copy()
         spectral_index_data = (nir - red) / (nir + red)
+        
+        SCALE_FACTOR = 1
+
+    elif INDEX_NAME == "NDWI":
+        # load spectral bands needed for NDWI
+        nir = load_rasters(urls, "NIR",
+                           band_dict = HLS_BAND_DICT, region = region,
+                           chunk_size = chunk_size)
+        
+        green = load_rasters(urls, "GREEN",
+                             band_dict = HLS_BAND_DICT, region = region,
+                             chunk_size = chunk_size)
+        
+        spectral_index = nir.copy()
+        spectral_index_data = (green - nir) / (green - nir)
         
         SCALE_FACTOR = 1
         
@@ -252,7 +289,12 @@ results = earthaccess.search_data(
 
 # retrieve URLS
 print("Retrieving granules...")
-hls_results_urls = [granule.data_links() for granule in results]
+all_hls_results_urls = [granule.data_links() for granule in results]
+
+# Filter results for optimal image tile (if 1 tile covers entire bbox)
+hls_results_urls = [
+    sublist for sublist in all_hls_results_urls if optimal_tile_name in sublist[0]
+    ]
 
 print(f"{len(hls_results_urls)} granules found.")
 
@@ -296,7 +338,7 @@ for j, h in enumerate(hls_results_urls):
         
         # Calculate spectral index
         spectral_index = calc_index(h, INDEX_NAME, 
-                                    region = aois, 
+                                    # region = aois, 
                                     bit_nums = bit_nums)
         
         print(f"{INDEX_NAME} index calculated.", end = "\n")
@@ -310,12 +352,15 @@ for j, h in enumerate(hls_results_urls):
         spectral_index.rio.to_raster(raster_path = out_path, driver = 'COG')
     
     # Load and export scene's fmask
-    fmask = load_rasters(h, "Fmask",
-                            region = aois,
-                            chunk_size = dict(band=1, x=512, y=512))
-    
     out_name = f"{original_name.split('v2.0')[0]}v2.0_Fmask_cropped.tif"
-        
-    fmask.rio.to_raster(raster_path = f'{out_folder}{out_name}', driver = 'COG')
+    out_path = f'{out_folder}{out_name}'
+    
+    if os.path.exists(out_path):
+            print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
+            continue
+    fmask = load_rasters(h, "Fmask",
+                        #  region = aois,
+                         chunk_size = dict(band=1, x=512, y=512))
+    fmask.rio.to_raster(raster_path = out_path, driver = 'COG')
     
     print(f"Processed file {j+1} of {len(hls_results_urls)}")

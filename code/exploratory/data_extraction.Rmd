@@ -7,6 +7,9 @@ Data pre-processing is handled in python. Sampling pixel values and data analysi
 ```{r}
 library(terra)
 library(tidyterra)
+library(rts)
+
+library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
@@ -26,14 +29,18 @@ plot(fire_within_roi,"duration")
 ```
 ## Dissolve fire perimeters that lie in the ROI to one
 ```{r}
-fire_union_roi <- terra::aggregate(fire_within_roi) %>% 
+fire_union_roi <- terra::aggregate(fire_within_roi) %>%
   project(crs(dnbr))
+
+fire_perimeter_buffered <- buffer(fire_union_roi, 1200)
+
 plot(fire_union_roi)
+plot(fire_perimeter_buffered,add = TRUE)
 ```
 ```{r}
 binwidth <- 20
 
-dnbr_in_perimeter <- mask(dnbr, fire_union_roi, updatevalue = NA)
+dnbr_in_perimeter <- mask(dnbr, fire_perimeter_buffered, updatevalue = NA)
 
 p1 <- ggplot() +
   geom_spatraster(data = dnbr_in_perimeter) +
@@ -54,7 +61,7 @@ p2 <- ggplot(data = dnbr_in_perimeter, aes(x = NBR)) +
 
 p1 + p2
 
-ggsave2("figures/expl_dNBR_hist.png",bg = "white")
+# ggsave2("figures/expl_dNBR_hist.png",bg = "white")
 ```
 
 ## Extract pixels within fire perimeter
@@ -83,6 +90,9 @@ random_points <- spatSample(rast_binned, nsample,
                             as.points = TRUE) %>% 
   mask(fire_union_roi) 
 
+# Export points as gpkg
+writeVector(random_points, filename = "data/feature_layers/random_points.gpkg")
+
 # Extract data at random points 
 dnbr_sample <- terra::extract(dnbr, random_points,ID = FALSE, xy = TRUE) %>% 
   drop_na() 
@@ -104,8 +114,7 @@ ggsave2("figures/expl_dNBR_hist_vs_sampled.png",bg = "white")
 write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
 ```
 
-## Plot results:
-
+## Check spatial autocorrelation of Random points:
 ```{r}
 library(spdep)
 
@@ -128,5 +137,88 @@ ggplot() +
   theme_cowplot()
 
 ggsave2("figures/stratified_random_points_moranI.png",bg = "white")
+
+```
+
+## Stack NDMI rasters
+```{r}
+HLS_DIR <- "data/raster/hls/"
+
+assign_rast_time <- function(lyr) {
+  # Extract the layer's timestamp
+  timestamp <- sub(
+    ".*\\.(\\d{7}T\\d{6}).*\\.tif$", "\\1",
+    basename(sources(lyr))
+  )
+
+  # Convert string to datetime
+  datetime <- as.POSIXct(timestamp, format = "%Y%jT%H%M%S", tz = "UTC")
+
+  # Assign time to raster layer
+  terra::time(lyr, "seconds") <- datetime
+  # names(lyr) <- datetime
+
+  return(lyr)
+}
+
+# List NDMI COGs
+ndmi_files_s30 <- list.files(HLS_DIR,
+  pattern = "S30.T54WXE.*NDMI_cropped\\.tif$"
+)
+ndmi_files_l30 <- list.files(HLS_DIR,
+  pattern = "L30.T54WXE.*NDMI_cropped\\.tif$"
+)
+
+ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30))
+ndmi_s30 <- sapp(ndmi_s30, assign_rast_time)
+
+ndmi_l30 <- rast(paste0(HLS_DIR, ndmi_files_l30))
+ndmi_l30 <- sapp(ndmi_l30, assign_rast_time)
+ndmi_l30 <- project(ndmi_l30, crs(ndmi_s30))
+
+ndmi <- c(ndmi_s30, ndmi_l30)
+ndmi
+```
+
+Extract NDMI values at random points
+```{r}
+# create raster time series object
+rt <- rts(ndmi, time(ndmi))
+
+df_ndmi <- terra::extract(rt, random_points) %>%
+  t() %>%
+  as.tibble()
+
+summary(df_ndmi)
+
+# Reshape from wide to long format
+count_df <- df_ndmi %>%
+  summarise(across(everything(), ~ sum(!is.na(.)))) %>% # Count non-NA values
+  pivot_longer(
+    cols = everything(),
+    names_to = "datetime",
+    values_to = "count"
+  ) %>%
+  mutate(
+    datetime = ymd_hms(datetime),
+    scene_nr = 1:nrow(.)
+  ) 
+
+
+count_df %>%
+  select(-scene_nr) %>%
+  gt() %>%
+  gtsave("data/tables/Nsamples_NDMI.html")
+
+# Plot the number of non-NA observations over time
+ggplot(count_df, aes(x = scene_nr, y = count)) +
+  geom_bar(stat = "identity", width = 0.8) +
+  labs(
+    x = "",
+    y = "Number of Non-NA Observations"
+  ) +
+  scale_x_discrete(labels = format(count_df$datetime, "%d %b")) +
+  theme_cowplot()
+ggsave2("figures/Nsamples_NDMI.png",bg = "white")
 
 ```
