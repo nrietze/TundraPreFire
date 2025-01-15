@@ -1,6 +1,14 @@
 # %%
 """
-_summary_
+Script to download and preprocess HLS data.
+- HLS data search
+- Cloud  masking using Fmask provided with imagery
+- Water masking done with dynamic NDWI thresholding (Otsu's method)
+- Automated implementation using joblib.Parallel.
+
+Author: Nils Rietze (nils.rietze@uzh.ch), github.com/nrietze
+
+Date: 15.01.2025 (last update of this docstring)
 """
 
 # Load packages
@@ -281,7 +289,8 @@ def calc_index(urls, index_name, bit_nums, region = None):
 
 def joblib_hls_processing(urls:list, 
                           band_index:str,
-                          bit_nums:dict):
+                          bit_nums:dict,
+                          REMASK_DATA:bool):
     start_time = time.time()
     
     original_name = urls[0].split('/')[-1]
@@ -295,16 +304,25 @@ def joblib_hls_processing(urls:list,
         out_path = f'{out_folder}{out_name}'
         
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
-        """if os.path.exists(out_path):
-            print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
-            continue"""
+        if os.path.exists(out_path):
+            
+            if REMASK_DATA:
+                print(f"{out_name} exists but remasking is applied.")
+                # Load existing data
+                spectral_index = calc_index(urls, index_name,
+                                            bit_nums = bit_nums)
+                
+            else:
+                print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
+                continue
         
-        # Calculate spectral index
-        spectral_index = calc_index(urls, index_name, 
-                                    # region = aois, 
-                                    bit_nums = bit_nums)
-        
-        print(f"{index_name} index calculated.", end = "\n")
+        # "else" necessary to handle remasking of existing tiles in previous "if"
+        else: 
+            # Calculate spectral index
+            spectral_index = calc_index(urls, index_name, 
+                                        bit_nums = bit_nums)
+            
+            print(f"{index_name} index calculated.", end = "\n")
         
         # Remove any observations that are entirely fill value
         if np.nansum(spectral_index.data) == 0.0:
@@ -324,7 +342,6 @@ def joblib_hls_processing(urls:list,
             pass
          
     fmask = load_rasters(urls, "Fmask",
-                        #  region = aois,
                          chunk_size = dict(band=1, x=512, y=512))
     fmask.rio.to_raster(raster_path = out_path, driver = 'COG')
     
@@ -349,15 +366,18 @@ if __name__ == "__main__":
         print("Successfully authenticated Earthaccess.")
         
     # Define bands/indices to download
-    band_index = ["NBR"]
+    band_index = ["NDVI, NDMI"]
 
+    # Apply new masking methods to existing tiles?
+    REMASK_DATA = True
+    
     # Define time search window
-    # START_DATE = "2020-04-15T00:00:00" #full growing season
-    START_DATE = "2020-09-10T00:00:00"
+    START_DATE = "2020-05-01T00:00:00" #full growing season
+    # START_DATE = "2020-09-10T00:00:00"
     # START_DATE = "2019-09-12T00:00:00"
 
-    # END_DATE = "2020-10-15T23:59:59" #full growing season
-    END_DATE = "2020-09-12T23:59:59"
+    END_DATE = "2020-10-15T23:59:59" #full growing season
+    # END_DATE = "2020-09-12T23:59:59"
     # END_DATE = "2019-09-13T23:59:59"
 
     # nr. of maximum returned images
@@ -371,35 +391,38 @@ if __name__ == "__main__":
     chunk_size = dict(band=1, x=512, y=512)
 
     # Load AOIs
-    aois = gp.read_file("data/feature_layers/roi.geojson")
+    # aois = gp.read_file("data/feature_layers/roi.geojson")
 
-    fire_perimeters_2020 = gp.read_file("data/feature_layers/fire_atlas/final_viirs2020.gpkg")
+    # fire_perimeters_2020 = gp.read_file("data/feature_layers/fire_atlas/final_viirs2020.gpkg")
 
-    # Intersect aoi & perimeter
-    fire_within_roi = gp.overlay(fire_perimeters_2020, aois,
-                                how='intersection')
+    # # Intersect aoi & perimeter
+    # fire_within_roi = gp.overlay(fire_perimeters_2020, aois,
+    #                             how='intersection')
 
     # convert end day of fire to date
-    fire_within_roi['end_date'] = fire_within_roi.apply(
-        lambda row: datetime.date(int(row['ted_year']), 
-                                int(row['ted_month']), 
-                                int(row['ted_day'])), axis=1)
+    # fire_within_roi['end_date'] = fire_within_roi.apply(
+    #     lambda row: datetime.date(int(row['ted_year']), 
+    #                             int(row['ted_month']), 
+    #                             int(row['ted_day'])), axis=1)
 
-    END_OF_FIRE = fire_within_roi['end_date'].max()
+    # END_OF_FIRE = fire_within_roi['end_date'].max()
 
-    bbox = tuple(list(fire_within_roi.total_bounds))
+    # bbox = tuple(list(fire_within_roi.total_bounds))
+    bbox = (144.4001779629389, 71.24588582272926,
+            146.16765743760948, 71.6168891179392)
     print("AOI loaded.")
 
     # Load MGRS tile centroids to find msot suitable HLS tile
-    mgrs_tile_centroids = gp.read_file("data/feature_layers/MGRS_centroids.geojson")
+    # mgrs_tile_centroids = gp.read_file("data/feature_layers/MGRS_centroids.geojson")
 
     # Find best UTM tile for the feature by identifying closest tile centroid to feature centroid
-    sindex = mgrs_tile_centroids.geometry.sindex.nearest(aois.geometry.centroid)
+    # sindex = mgrs_tile_centroids.geometry.sindex.nearest(aois.geometry.centroid)
 
-    # Query tile in all MGRS tiles
-    nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:] 
+    # # Query tile in all MGRS tiles
+    # nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:] 
 
-    optimal_tile_name = nearest_mgrs_tile_centroid.Name.item()
+    # optimal_tile_name = nearest_mgrs_tile_centroid.Name.item()
+    optimal_tile_name = "54WXE"
 
     # Define time window
     temporal = (START_DATE, END_DATE)
@@ -437,10 +460,9 @@ if __name__ == "__main__":
 
     # output directory
     out_folder = 'data/raster/hls/'
-    N_CORES = 1 # -1 = all are used, -2 all but one
+    N_CORES = -1 # -1 = all are used, -2 all but one
 
     multiprocessing.set_start_method('spawn')
     
-    Parallel(n_jobs=N_CORES, backend='loky')(
-        delayed(joblib_hls_processing)(urls,band_index,bit_nums) for urls in hls_results_urls)
-# %%
+    Parallel(n_jobs=N_CORES, backend='threading')(
+        delayed(joblib_hls_processing)(urls,band_index,bit_nums,REMASK_DATA) for urls in hls_results_urls)
