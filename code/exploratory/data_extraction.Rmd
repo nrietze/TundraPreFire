@@ -14,19 +14,84 @@ library(tidyverse)
 library(cowplot)
 library(patchwork)
 print(getwd())
+
+set.seed(10)
 ```
 
 ## Loading and preparing data:
 ```{r}
-dnbr <- rast("./data/raster/hls/dNBR/HLS.L30.T54WXE.2020254T020729.v2.0_dNBR_cropped.tif") * 1000
+dnbr <- rast(
+  "data/raster/hls/dNBR/HLS.L30.T54WXE.2020254T020729.v2.0_dNBR_cropped.tif"
+) * 1000
 
 # Load features (fire perimeters and ROIs)
-fire_perimeters_2020 <- vect("./data/feature_layers/fire_atlas/final_viirs2020.gpkg")
+fire_perimeters_2020 <- vect(
+  "data/feature_layers/fire_atlas/final_viirs2020.gpkg"
+)
 roi <- vect("./data/feature_layers/roi.geojson")
 
 fire_within_roi <- terra::intersect(fire_perimeters_2020, roi)
-plot(fire_within_roi,"duration")
+plot(fire_within_roi, "duration")
 ```
+
+## Summarize fire events in study area (CAVM extent of Russian tundra)
+```{r}
+library(sf)
+
+FNAME_VIIRS_PERIMS <- "data/feature_layers/viirs_perimeters_in_cavm.gpkg"
+
+# Assemble VIIRS perimeters if not done so already.
+if (!file.exists(FNAME_VIIRS_PERIMS)){
+
+  # Load all VIIRS fire atlas perimeters
+  viirs_files <- list.files(
+    "data/feature_layers/fire_atlas",
+    "^final_viirs\\d{4}\\.gpkg$",
+    full.names = TRUE
+  )
+  years <- as.numeric(sub(".*final_viirs(\\d{4})\\.gpkg$", "\\1", viirs_files))
+
+  viirs_files <- viirs_files[years >= 2016] # Filter out data before 2016
+
+  # Load VIIRS perimeters
+  viirs_perims_list <- lapply(viirs_files, vect)
+  viirs_perims_list <- lapply(viirs_files, read_sf) # with sf package
+  
+  viirs_perims <- do.call(rbind, viirs_perims_list)
+  viirs_perims
+
+  # load CAVM outlines and project to VIIRS CRS
+  cavm_zones <- vect("data/feature_layers/cavm_vegetation_zones.gpkg") %>%
+    project(crs(viirs_perims))
+  cavm_zones <- read_sf("data/feature_layers/cavm_vegetation_zones.gpkg") %>%
+    st_transform(st_crs(viirs_perims))
+
+  # Clip VIIRS perimeters with CAVM outline
+  viirs_perims_cavm_index <- is.related(viirs_perims, cavm_zones, "intersects")
+  viirs_perims_cavm <- viirs_perims[viirs_perims_cavm_index]
+
+  # Filter based on centroids
+  viirs_centroids <- centroids(viirs_perims)
+  centroids_in_cavm <- terra::intersect(cavm_zones, viirs_centroids)
+  selected_viirs_perims <- viirs_perims[!is.na(centroids_in_cavm[, 2]), ]
+
+  # Fill holes in perims first
+  viirs_perims_filled <- st_make_valid(viirs_perims)
+  viirs_perims_cavm <- st_intersection(viirs_perims_filled,cavm_zones)
+
+  # Export intersection
+  writeVector(
+    viirs_perims_cavm,
+    FNAME_VIIRS_PERIMS,
+    overwrite = TRUE
+  )
+}
+
+viirs_perims_cavm <- vect(FNAME_VIIRS_PERIMS)
+
+```
+
+
 ## Dissolve fire perimeters that lie in the ROI to one
 ```{r}
 fire_union_roi <- terra::aggregate(fire_within_roi) %>%
@@ -88,10 +153,10 @@ random_points <- spatSample(rast_binned, nsample,
                             method = "random",
                             values = FALSE,
                             as.points = TRUE) %>% 
-  mask(fire_union_roi) 
+  mask(fire_perimeter_buffered) 
 
 # Export points as gpkg
-writeVector(random_points, filename = "data/feature_layers/random_points.gpkg")
+# writeVector(random_points, filename = "data/feature_layers/random_points.gpkg")
 
 # Extract data at random points 
 dnbr_sample <- terra::extract(dnbr, random_points,ID = FALSE, xy = TRUE) %>% 
@@ -108,10 +173,10 @@ p3 <- ggplot(data = dnbr_sample, aes(x = NBR)) +
   theme_cowplot()
 
 p2 / p3 
-ggsave2("figures/expl_dNBR_hist_vs_sampled.png",bg = "white")
+# ggsave2("figures/expl_dNBR_hist_vs_sampled.png",bg = "white")
 
 # Export dataframe to csv
-write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
+# write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
 ```
 
 ## Check spatial autocorrelation of Random points:
@@ -132,11 +197,11 @@ ggplot() +
                        na.value = "white",
                        name = "dNBR") +
   geom_spatvector(data = random_points) +
-  labs(title = sprintf("Randomly samlped points\nMoran's I: %.2f(p-value: %.4f)", 
+  labs(title = sprintf("Randomly samlped points\nMoran's I: %.2f (p-value: %.4f)", 
        moran_i$estimate[1],moran_i$p.value)) +                   
   theme_cowplot()
 
-ggsave2("figures/stratified_random_points_moranI.png",bg = "white")
+# ggsave2("figures/stratified_random_points_moranI.png",bg = "white")
 
 ```
 
@@ -204,11 +269,11 @@ count_df <- df_ndmi %>%
     scene_nr = 1:nrow(.)
   ) 
 
-
 count_df %>%
   select(-scene_nr) %>%
   gt() %>%
-  gtsave("data/tables/Nsamples_NDMI.html")
+  # gtsave("data/tables/Nsamples_NDMI.html") %>%
+  print()
 
 # Plot the number of non-NA observations over time
 ggplot(count_df, aes(x = scene_nr, y = count)) +
@@ -219,6 +284,6 @@ ggplot(count_df, aes(x = scene_nr, y = count)) +
   ) +
   scale_x_discrete(labels = format(count_df$datetime, "%d %b")) +
   theme_cowplot()
-ggsave2("figures/Nsamples_NDMI.png",bg = "white")
+# ggsave2("figures/Nsamples_NDMI.png",bg = "white")
 
 ```

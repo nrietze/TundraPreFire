@@ -2,6 +2,7 @@
 **/*.tif
 **/*.tif.aux
 **/*.tif.ovr
+**/*.tif.vat.Value.atx
 **/*.tif.aux.xml
 **/*.cpg
 **/*.dbf
@@ -81,3 +82,4 @@ rsconnect/
 
 *.dodsrc
 code/exploratory/HLS_Tutorial.html
+code/data_download/__pycache__/
