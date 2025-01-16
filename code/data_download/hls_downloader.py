@@ -113,10 +113,15 @@ def load_rasters(index_band_links, band_name,
     return raster
 
 # Calculate spectral index
-def calc_index(urls, index_name, bit_nums, region = None): 
+def calc_index(urls, 
+               index_name,
+               bit_nums,
+               out_folder,
+               region = None): 
+    
     # Band name pairs
     if urls[0].split('/')[4] == 'HLSS30.020':
-        HLS_BAND_DICT = {
+        hls_band_dict = {
             "BLUE" : "B02",
             "GREEN" : "B03",
             "RED" : "B04",
@@ -126,7 +131,7 @@ def calc_index(urls, index_name, bit_nums, region = None):
             "Fmask" : "Fmask"
         }
     else:
-        HLS_BAND_DICT = {
+        hls_band_dict = {
             "BLUE" : "B02",
             "GREEN" : "B03",
             "RED" : "B04",
@@ -143,11 +148,11 @@ def calc_index(urls, index_name, bit_nums, region = None):
     if index_name == "NDMI":
         # load spectral bands needed for NDMI
         nir = load_rasters(urls, "NIR",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         swir1 = load_rasters(urls, "SWIR1",
-                             band_dict = HLS_BAND_DICT, region = region,
+                             band_dict = hls_band_dict, region = region,
                              chunk_size = chunk_size)
         spectral_index = multispectral.ndmi(nir, swir1)
         
@@ -160,11 +165,11 @@ def calc_index(urls, index_name, bit_nums, region = None):
     elif index_name == "NDVI":
         # load spectral bands needed for NDVI
         nir = load_rasters(urls, "NIR",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         red = load_rasters(urls, "RED",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         spectral_index = multispectral.ndvi(nir, red)
@@ -178,11 +183,11 @@ def calc_index(urls, index_name, bit_nums, region = None):
     elif index_name == "NBR":
         # load spectral bands needed for NDMI
         nir = load_rasters(urls, "NIR",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         swir2 = load_rasters(urls, "SWIR2",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         # spectral_index = nir.copy()
@@ -197,11 +202,11 @@ def calc_index(urls, index_name, bit_nums, region = None):
     elif index_name == "GEMI":
         # load spectral bands needed for NDMI
         nir = load_rasters(urls, "NIR",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         red = load_rasters(urls, "RED",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         spectral_index = nir.copy()
@@ -217,14 +222,14 @@ def calc_index(urls, index_name, bit_nums, region = None):
     # change the long_name in the attributes
     spectral_index.attrs['long_name'] = index_name
     spectral_index.attrs['scale_factor'] = SCALE_FACTOR
-    
+
+    # ---- MASKING ----
     # Compute Water mask 
     tile_name = urls[0].split('/')[-1]
-    hls_folder = 'data/raster/hls/'
-    filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask_cropped.tif"
-    wm_path = f"{hls_folder}{filename}"
+    filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask.tif"
+    wm_path = f"{out_folder}{filename}"
     
-    # Check if that tile's water mask doesn't exist yet
+    # Check if that tile's water mask exists
     if os.path.exists(wm_path):
         print("Loading water mask.")
         water_mask = rxr.open_rasterio(wm_path,
@@ -236,11 +241,11 @@ def calc_index(urls, index_name, bit_nums, region = None):
         print("Computing NDWI water mask.")
         # load spectral bands needed for NDWI
         nir = load_rasters(urls, "NIR",
-                           band_dict = HLS_BAND_DICT, region = region,
+                           band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         green = load_rasters(urls, "GREEN",
-                             band_dict = HLS_BAND_DICT, region = region,
+                             band_dict = hls_band_dict, region = region,
                              chunk_size = chunk_size)
         
         ndwi = nir.copy()
@@ -252,8 +257,8 @@ def calc_index(urls, index_name, bit_nums, region = None):
         ndwi.attrs['long_name'] = "NDWI"
         
         # Export NDWI as COG tiff
-        ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI_cropped.tif"
-        ndwi_path = f"{hls_folder}{ndwi_filename}"
+        ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI.tif"
+        ndwi_path = f"{out_folder}{ndwi_filename}"
         ndwi.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
     
         # Apply Otsu's thresholding to NDWI 
@@ -268,14 +273,30 @@ def calc_index(urls, index_name, bit_nums, region = None):
         water_mask.astype(int).rio.to_raster(
             raster_path = wm_path, driver = 'COG')
     
-    # get Fmask
-    fmask = load_rasters(urls, "Fmask",
-                         region = region,
-                         band_dict = HLS_BAND_DICT,
-                         chunk_size = dict(band=1, x=512, y=512))
+    # Fmask
+    tile_name = urls[0].split('/')[-1]
+    filename = f"{tile_name.split('v2.0')[0]}v2.0_Fmask.tif"
+    fmask_path = f"{out_folder}{filename}"
+    
+    # Check if that tile's Fmask tiff exists
+    if os.path.exists(fmask_path):
+        print("Loading existing Fmask.")
+        fmask = rxr.open_rasterio(fmask_path,
+                                  chunks=chunk_size,
+                                  masked=True).squeeze('band', drop=True)
+    
+    else:
+        print("Downloading Fmask.")
+        # Load tile's Fmask
+        fmask = load_rasters(urls, "Fmask",region=region,chunk_size=chunk_size)
+
+        # Export scene's Fmask
+        fmask.rio.to_raster(raster_path = fmask_path, driver = 'COG')
+
+    # Convert Fmask to quality mask
+    mask_layer = create_quality_mask(fmask.data, bit_nums)
     
     # Apply mask and filter spectral_index image
-    mask_layer = create_quality_mask(fmask.data, bit_nums)
     merged_mask = np.logical_and(mask_layer,water_mask)
     spectral_index_qf = spectral_index.where(~merged_mask)
     
@@ -288,7 +309,8 @@ def calc_index(urls, index_name, bit_nums, region = None):
 
 def joblib_hls_processing(urls:list, 
                           band_index:str,
-                          bit_nums:dict,
+                          bit_nums:list,
+                          out_folder: str,
                           REMASK_DATA:bool):
     start_time = time.time()
     
@@ -298,7 +320,7 @@ def joblib_hls_processing(urls:list,
     
     for index_name in band_index:
         # Generate output name from the original filename
-        out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}_cropped.tif"
+        out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}.tif"
         
         out_path = f'{out_folder}{out_name}'
         
@@ -307,8 +329,10 @@ def joblib_hls_processing(urls:list,
             
             if REMASK_DATA:
                 print(f"{out_name} exists but remasking is applied.")
+                
                 # Load existing data
                 spectral_index = calc_index(urls, index_name,
+                                            out_folder = out_folder,
                                             bit_nums = bit_nums)
                 
             else:
@@ -319,6 +343,7 @@ def joblib_hls_processing(urls:list,
         else: 
             # Calculate spectral index
             spectral_index = calc_index(urls, index_name, 
+                                        out_folder = out_folder,
                                         bit_nums = bit_nums)
             
             print(f"{index_name} index calculated.", end = "\n")
@@ -330,19 +355,6 @@ def joblib_hls_processing(urls:list,
         
         # Export to COG tiffs
         spectral_index.rio.to_raster(raster_path = out_path, driver = 'COG')
-    
-    # Load and export scene's Fmask
-    out_name = f"{original_name.split('v2.0')[0]}v2.0_Fmask_cropped.tif"
-    out_path = f'{out_folder}{out_name}'
-    
-    if os.path.exists(out_path):
-            print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
-            # continue # if in for-loop
-            pass
-         
-    fmask = load_rasters(urls, "Fmask",
-                         chunk_size = dict(band=1, x=512, y=512))
-    fmask.rio.to_raster(raster_path = out_path, driver = 'COG')
     
     print("--- %s seconds ---" % (time.time() - start_time))
 
@@ -458,10 +470,10 @@ if __name__ == "__main__":
     bit_nums = [0,1,2,3,4]
 
     # output directory
-    out_folder = 'data/raster/hls/'
+    out_folder = '/data/nrietz/raster/hls/'
     N_CORES = -1 # -1 = all are used, -2 all but one
 
     multiprocessing.set_start_method('spawn')
     
     Parallel(n_jobs=N_CORES, backend='threading')(
-        delayed(joblib_hls_processing)(urls,band_index,bit_nums,REMASK_DATA) for urls in hls_results_urls)
+        delayed(joblib_hls_processing)(urls,band_index,bit_nums,out_folder,REMASK_DATA) for urls in hls_results_urls)
