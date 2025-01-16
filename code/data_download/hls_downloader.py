@@ -149,7 +149,6 @@ def calc_index(urls, index_name, bit_nums, region = None):
         swir1 = load_rasters(urls, "SWIR1",
                              band_dict = HLS_BAND_DICT, region = region,
                              chunk_size = chunk_size)
-        
         spectral_index = multispectral.ndmi(nir, swir1)
         
         # Exclude data outside valid value range
@@ -215,6 +214,10 @@ def calc_index(urls, index_name, bit_nums, region = None):
         
         SCALE_FACTOR = 1
         
+    # change the long_name in the attributes
+    spectral_index.attrs['long_name'] = index_name
+    spectral_index.attrs['scale_factor'] = SCALE_FACTOR
+    
     # Compute Water mask 
     tile_name = urls[0].split('/')[-1]
     hls_folder = 'data/raster/hls/'
@@ -264,10 +267,6 @@ def calc_index(urls, index_name, bit_nums, region = None):
         # Export water mask as COG tiff
         water_mask.astype(int).rio.to_raster(
             raster_path = wm_path, driver = 'COG')
-    
-    # change the long_name in the attributes
-    spectral_index.attrs['long_name'] = index_name
-    spectral_index.attrs['scale_factor'] = SCALE_FACTOR
     
     # get Fmask
     fmask = load_rasters(urls, "Fmask",
@@ -366,7 +365,7 @@ if __name__ == "__main__":
         print("Successfully authenticated Earthaccess.")
         
     # Define bands/indices to download
-    band_index = ["NDVI, NDMI"]
+    band_index = ["NDVI", "NDMI"]
 
     # Apply new masking methods to existing tiles?
     REMASK_DATA = True
