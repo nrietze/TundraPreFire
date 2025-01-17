@@ -6,6 +6,7 @@ output: html_notebook
 Data pre-processing is handled in python. Sampling pixel values and data analysis in R.
 ```{r}
 library(terra)
+library(sf)
 library(tidyterra)
 library(rts)
 
@@ -21,7 +22,7 @@ set.seed(10)
 ## Loading and preparing data:
 ```{r}
 dnbr <- rast(
-  "data/raster/hls/dNBR/HLS.L30.T54WXE.2020254T020729.v2.0_dNBR_cropped.tif"
+  "data/raster/hls/dNBR/dNBR_no_NDWImask.tif"
 ) * 1000
 
 # Load features (fire perimeters and ROIs)
@@ -31,13 +32,10 @@ fire_perimeters_2020 <- vect(
 roi <- vect("./data/feature_layers/roi.geojson")
 
 fire_within_roi <- terra::intersect(fire_perimeters_2020, roi)
-plot(fire_within_roi, "duration")
 ```
 
 ## Summarize fire events in study area (CAVM extent of Russian tundra)
 ```{r}
-library(sf)
-
 FNAME_VIIRS_PERIMS <- "data/feature_layers/viirs_perimeters_in_cavm.gpkg"
 
 # Assemble VIIRS perimeters if not done so already.
