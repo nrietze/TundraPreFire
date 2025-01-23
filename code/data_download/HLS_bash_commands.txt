@@ -1,0 +1,1 @@
+code/data_download/getHLS.sh code/data_download/tileid_file.txt 2020-05-01 2020-10-15 data/raster/hls/
