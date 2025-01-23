@@ -377,19 +377,19 @@ if __name__ == "__main__":
         print("Successfully authenticated Earthaccess.")
         
     # Define bands/indices to download
-    band_index = ["NDVI", "NDMI"]
+    band_index = ["NBR"]
 
     # Apply new masking methods to existing tiles?
     REMASK_DATA = True
     
     # Define time search window
-    START_DATE = "2020-05-01T00:00:00" #full growing season
+    # START_DATE = "2020-05-01T00:00:00" #full growing season
     # START_DATE = "2020-09-10T00:00:00"
-    # START_DATE = "2019-09-12T00:00:00"
+    START_DATE = "2019-09-12T00:00:00"
 
-    END_DATE = "2020-10-15T23:59:59" #full growing season
+    # END_DATE = "2020-10-15T23:59:59" #full growing season
     # END_DATE = "2020-09-12T23:59:59"
-    # END_DATE = "2019-09-13T23:59:59"
+    END_DATE = "2019-09-13T23:59:59"
 
     # nr. of maximum returned images
     MAX_IMG = 10000
@@ -471,6 +471,7 @@ if __name__ == "__main__":
 
     # output directory
     out_folder = '/data/nrietz/raster/hls/'
+    out_folder = 'data/raster/hls/'
     N_CORES = -1 # -1 = all are used, -2 all but one
 
     multiprocessing.set_start_method('spawn')
