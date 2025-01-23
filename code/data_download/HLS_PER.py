@@ -15,11 +15,15 @@ import os
 import sys
 import logging
 
+from osgeo import gdal
 import numpy as np
 from datetime import datetime as dt
 import xarray as xr
 import rioxarray as rxr
+from xrspatial import multispectral
 import dask.distributed
+import dask.array as da
+from skimage.filters import threshold_multiotsu, threshold_otsu
 
 
 def create_output_name(url, band_dict):
@@ -32,12 +36,12 @@ def create_output_name(url, band_dict):
     asset = url.split("/")[-1].split(".")[-2]
     # Hard-coded one off for Fmask name incase it is not in the band_dict but is needed for masking
     if asset == "Fmask":
-        output_name = f"{'.'.join(url.split('/')[-1].split('.')[:-2])}.FMASK.subset.tif"
+        output_name = f"{'.'.join(url.split('/')[-1].split('.')[:-2])}_Fmask.tif"
     else:
         for key, value in band_dict[prod].items():
             if value == asset:
                 output_name = (
-                    f"{'.'.join(url.split('/')[-1].split('.')[:-2])}.{key}.subset.tif"
+                    f"{'.'.join(url.split('/')[-1].split('.')[:-2])}.{key}.tif"
                 )
     return output_name
 
@@ -48,29 +52,29 @@ def open_hls(url, roi=None, scale=True, chunk_size=dict(band=1, x=512, y=512)):
     Some HLS Landsat scenes have the metadata in the wrong location.
     """
     # Open using rioxarray
-    da = rxr.open_rasterio(url, chunks=chunk_size, mask_and_scale=False).squeeze(
+    da_hls = rxr.open_rasterio(url, chunks=chunk_size, mask_and_scale=False).squeeze(
         "band", drop=True
     )
 
     # Reproject ROI and Clip if ROI is provided
     if roi is not None:
-        roi = roi.to_crs(da.spatial_ref.crs_wkt)
-        da = da.rio.clip(roi.geometry.values, roi.crs, all_touched=True)
+        roi = roi.to_crs(da_hls.spatial_ref.crs_wkt)
+        da_hls = da_hls.rio.clip(roi.geometry.values, roi.crs, all_touched=True)
 
     # Apply Scale Factor if desired for non-quality layer
     if scale and "Fmask" not in url:
         # Mask Fill Values
-        da = xr.where(da == -9999, np.nan, da)
+        da_hls = xr.where(da_hls == -9999, np.nan, da_hls)
         # Scale Data
-        da = da * 0.0001
+        da_hls = da_hls * 0.0001
         # Remove Scale Factor After Scaling - Prevents Double Scaling
-        da.attrs["scale_factor"] = 1.0
+        da_hls.attrs["scale_factor"] = 1.0
 
     # Add Scale Factor to Attributes Manually - This will overwrite/add if the data is missing.
     if not scale and "Fmask" not in url:
-        da.attrs["scale_factor"] = 0.0001
+        da_hls.attrs["scale_factor"] = 0.0001
 
-    return da
+    return da_hls
 
 
 def create_quality_mask(quality_data, bit_nums: list = [0, 1, 2, 3, 4, 5]):
@@ -95,7 +99,7 @@ def process_granule(
     scale,
     output_dir,
     band_dict,
-    bit_nums=[0, 1, 2, 3, 4, 5],
+    bit_nums=[0, 1, 2, 3, 4],
     chunk_size=dict(band=1, x=512, y=512),
 ):
     """
@@ -146,8 +150,55 @@ def process_granule(
             # Create Quality Mask
             qa_mask = create_quality_mask(qa_da, bit_nums=bit_nums)
 
+            
+            # Compute Water mask 
+            tile_name = granule_urls[0].split('/')[-1]
+            filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask.tif"
+            wm_path = f"{output_dir}{filename}"
+            
+            # Check if that tile's water mask exists
+            if os.path.exists(wm_path):
+                logging.info("Loading water mask.")
+                water_mask = rxr.open_rasterio(wm_path,
+                                            chunks=chunk_size,
+                                            masked=True
+                                            ).squeeze('band', drop=True
+                                                        ).astype(bool)
+            else:
+                logging.info("Computing NDWI water mask.")
+                nir_url = quality_url.replace("Fmask",band_dict["NIR"])
+                green_url = quality_url.replace("Fmask",band_dict["NIR"])
+                
+                # load spectral bands needed for NDWI
+                nir = open_hls(nir_url, roi, scale, chunk_size)
+                green = open_hls(green_url, roi, scale, chunk_size)
+                
+                ndwi = nir.copy()
+                ndwi.data = (green - nir) / (green + nir)
+                
+                # Exclude data outside valid value range
+                ndwi = ndwi.where((ndwi < -1) & (ndwi > 1), np.nan)
+                
+                ndwi.attrs['long_name'] = "NDWI"
+                
+                # Export NDWI as COG tiff
+                ndwi_filename = filename.replace("watermask","NDWI")
+                ndwi_path = f"{output_dir}{ndwi_filename}"
+                ndwi.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
+            
+                # Apply Otsu's thresholding to NDWI 
+                hist_ndwi = da.histogram(ndwi, bins=2, range=[-1, 1])
+                # otsu_thresh = threshold_otsu(hist_ndwi[1])[1]
+                otsu_thresh = threshold_multiotsu(hist_ndwi[1])[1]
+                
+                # Apply threshold to mask out water
+                water_mask = ndwi > otsu_thresh
+                
+                # Export water mask as COG tiff
+                water_mask.astype(int).rio.to_raster(
+                    raster_path = wm_path, driver = 'COG')
+            
         # Process Remaining Assets
-
         for url in granule_urls:
             # Check if File exists in Output Directory
             output_name = create_output_name(url, band_dict)
@@ -156,14 +207,15 @@ def process_granule(
             # Check if scene is already processed
             if not os.path.isfile(output_file):
                 # Open Asset
-                da = open_hls(url, roi, scale, chunk_size)
+                da_hls = open_hls(url, roi, scale, chunk_size)
 
                 # Apply Quality Mask if Desired
                 if quality_filter:
-                    da = da.where(~qa_mask)
+                    merged_mask = np.logical_and(qa_da,water_mask)
+                    da_hls = da_hls.where(~merged_mask)
 
                 # Write Output
-                da.rio.to_raster(raster_path=output_file, driver="COG")
+                da_hls.rio.to_raster(raster_path=output_file, driver="COG")
             else:
                 logging.info(
                     f"Existing file {output_name} found in {output_dir}. Skipping."

@@ -1,1 +1,5 @@
-code/data_download/getHLS.sh code/data_download/tileid_file.txt 2020-05-01 2020-10-15 data/raster/hls/
+code/data_download/getHLS.sh code/data_download/tileid_file.txt 2020-07-01 2020-07-05 data/raster/hls/
+
+
+python code/data_download/HLS_SuPER.py -roi '144.4001779629389, 71.24588582272926,
+            146.16765743760948, 71.6168891179392' -dir data/raster/hls/ -start 2020-07-01 -end 2020-07-05 -bands RED,GREEN,BLUE,NIR1,SWIR1,SWIR2,FMASK -qf True
