@@ -475,6 +475,18 @@ def main():
     results_urls_file = os.path.join(output_dir, "hls_super_results_urls.json")
     use_existing_file = False
 
+    # Load MGRS tile centroids to find msot suitable HLS tile
+    # mgrs_tile_centroids = gp.read_file("data/feature_layers/MGRS_centroids.geojson")
+
+    # Find best UTM tile for the feature by identifying closest tile centroid to feature centroid
+    # sindex = mgrs_tile_centroids.geometry.sindex.nearest(aois.geometry.centroid)
+
+    # # Query tile in all MGRS tiles
+    # nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:] 
+
+    # optimal_tile_name = nearest_mgrs_tile_centroid.Name.item()
+    optimal_tile_name = "54WXE"
+    
     if os.path.isfile(results_urls_file):
         logging.info(f"Results url list already exists in {output_dir}.")
         # Confirm if user wants to use existing file.
@@ -498,9 +510,13 @@ def main():
 
     else:
         logging.info("Searching for data...")
-        results_urls = hls_search(
+        all_tiles_results_urls = hls_search(
             roi=vl, band_dict=band_dict, dates=dates, cloud_cover=cc
         )
+        
+        # Filter results for optimal image tile (if 1 tile covers entire bbox)
+        results_urls = [sublist for sublist in all_tiles_results_urls if optimal_tile_name in sublist[0]]
+        
         logging.info(f"Writing search results to {results_urls_file}")
         with open(results_urls_file, "w") as file:
             json.dump(results_urls, file)
