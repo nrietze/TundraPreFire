@@ -166,8 +166,8 @@ def process_granule(
                                                         ).astype(bool)
             else:
                 logging.info("Computing NDWI water mask.")
-                nir_url = quality_url.replace("Fmask",band_dict["NIR"])
-                green_url = quality_url.replace("Fmask",band_dict["NIR"])
+                nir_url = quality_url.replace("Fmask",band_dict["NIR1"])
+                green_url = quality_url.replace("Fmask",band_dict["GREEN"])
                 
                 # load spectral bands needed for NDWI
                 nir = open_hls(nir_url, roi, scale, chunk_size)
