@@ -41,7 +41,7 @@ def create_output_name(url, band_dict):
         for key, value in band_dict[prod].items():
             if value == asset:
                 output_name = (
-                    f"{'.'.join(url.split('/')[-1].split('.')[:-2])}.{key}.tif"
+                    f"{'.'.join(url.split('/')[-1].split('.')[:-2])}_{key}.tif"
                 )
     return output_name
 
