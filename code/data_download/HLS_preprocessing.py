@@ -115,7 +115,7 @@ def create_quality_mask(quality_data,
 
 # Define raster loading function
 def load_rasters(index_band_links, band_name,
-                 band_dict = {"Fmask" : "Fmask"}, 
+                 band_dict = {"FMASK" : "Fmask"}, 
                  region = None, 
                  chunk_size = dict(band=1, x=512, y=512)):
     """
@@ -352,9 +352,9 @@ def calc_index(files,
                                   masked=True).squeeze('band', drop=True)
     
     else:
-        print("Downloading Fmask.")
+        print("Loading Fmask.")
         # Load tile's Fmask
-        fmask = load_rasters(files, "Fmask",region=region,chunk_size=chunk_size)
+        fmask = load_rasters(files, "FMASK",region=region,chunk_size=chunk_size)
 
         # Export scene's Fmask
         fmask.rio.to_raster(raster_path = fmask_path, driver = 'COG')

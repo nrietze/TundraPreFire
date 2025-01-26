@@ -22,7 +22,7 @@ set.seed(10)
 ## Loading and preparing data:
 ```{r}
 dnbr <- rast(
-  "data/raster/hls/dNBR/dNBR_no_NDWImask.tif"
+  "data/raster/hls/dNBR/2020_dNBR.tif"
 ) * 1000
 
 # Load features (fire perimeters and ROIs)
