@@ -264,13 +264,14 @@ def calc_index(files,
         SCALE_FACTOR = 1
         
     elif index_name == "GEMI":
-        # load spectral bands needed for NDMI
+        # load spectral bands needed for GEMI
         nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
         red = load_rasters(files, "RED",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict, 
+                           region = region,
                            chunk_size = chunk_size)
         
         spectral_index = nir.copy()
@@ -305,7 +306,8 @@ def calc_index(files,
         print("Computing NDWI water mask.")
         # load spectral bands needed for NDWI
         nir = load_rasters(files, "NIR1",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict,
+                           region = region,
                            chunk_size = chunk_size)
         
         green = load_rasters(files, "GREEN",
@@ -325,7 +327,7 @@ def calc_index(files,
         ndwi_path = f"{out_folder}{ndwi_filename}"
         ndwi.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
     
-        # Apply Otsu's thresholding to NDWI 
+        # Apply Otsu's thresholding to NDWI
         hist_ndwi = da.histogram(ndwi, bins=2, range=[-1, 1])
         # otsu_thresh = threshold_otsu(hist_ndwi[1])[1]
         otsu_thresh = threshold_multiotsu(hist_ndwi[1])[1]
@@ -419,15 +421,6 @@ if __name__ == "__main__":
     gdal.SetConfigOption('GDAL_HTTP_MAX_RETRY', '10')
     gdal.SetConfigOption('GDAL_HTTP_RETRY_DELAY', '0.5')
 
-    # Define bands/indices to process
-    band_index = ["NDMI", "NDVI"]
-
-    # Overwrite existing tiles?
-    OVERWRITE_DATA = True
-    
-    # define chunk size for data loading
-    chunk_size = dict(band=1, x=3600, y=3600)
-
     # Load AOIs
     # aois = gp.read_file("data/feature_layers/roi.geojson")
 
@@ -459,13 +452,22 @@ if __name__ == "__main__":
     # # Query tile in all MGRS tiles
     # nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:]
 
-    # optimal_tile_name = nearest_mgrs_tile_centroid.Name.item()
-    optimal_tile_name = "54WXE"
+    # OPTIMAL_TILE_NAME = nearest_mgrs_tile_centroid.Name.item()
+    OPTIMAL_TILE_NAME = "54WXE"
+
+    # Define bands/indices to process
+    band_index = ["NBR"]
+
+    # Overwrite existing tiles?
+    OVERWRITE_DATA = True
+    
+    # define chunk size for data loading
+    chunk_size = dict(band=1, x=3600, y=3600)
 
     # Set original data paths
-    hls_parent_path = "/home/nrietz/scratch/raster/hls/"
+    HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/"
 
-    hls_granules_paths = get_hls_tif_list(hls_parent_path)
+    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
 
     if "NBR" in band_index:
         # Define time search window
