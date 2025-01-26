@@ -153,10 +153,10 @@ assign_rast_time <- function(lyr) {
 
 # List NDMI COGs
 ndmi_files_s30 <- list.files(HLS_DIR,
-                             pattern = "S30.T54WXE.*NDMI\\.tif$"
+                             pattern = "S30.T54WXE.*NDVI\\.tif$"
 )
 ndmi_files_l30 <- list.files(HLS_DIR,
-                             pattern = "L30.T54WXE.*NDMI\\.tif$"
+                             pattern = "L30.T54WXE.*NDVI\\.tif$"
 )
 
 ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30[1:length(ndmi_files_s30)-1]))
@@ -180,13 +180,17 @@ summary(df_ndmi)
 
 write.csv2(df_ndmi,paste0(HLS_DIR,"ndmi_sampled.csv"))
 
-df <- df_ndmi
-timestamps <- as.POSIXct(colnames(df), format = "%Y-%m-%d %H:%M:%S")
+df <- read.csv2(paste0(HLS_DIR,"ndmi_sampled.csv")) %>% 
+  select(-1) %>% 
+  as_tibble()
+
+timestamps <- as.POSIXct(colnames(df), format = "X%Y.%m.%d.%H.%M.%S")
+timestamps
 
 df_long <- df %>%
   mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
   gather(key = "Time", value = "NDMI", -ObservationID) %>% 
-  mutate(Time = as.POSIXct(Time, format = "%Y-%m-%d %H:%M:%S")) 
+  mutate(Time = as.POSIXct(Time, format = "X%Y.%m.%d.%H.%M.%S")) 
 
 df_nobs <- df_long %>% 
   group_by(ObservationID) %>% 
@@ -210,12 +214,8 @@ ggplot(df_nobs) +
        subtitle = "And thresholds of valid data (blue") +
   theme_cowplot()
 
-ggsave2("figures/Histogram_NDMI_observations.png",width = 10, height = 8)
-
-df_filtered <- df_daily_ndmi %>%
-  inner_join(valid_counts_by_id, by = "ObservationID") %>%
-  filter(valid_count >= percentile_75) %>%
-  select(-valid_count)  # Optionally remove the valid_count column
+ggsave2("figures/Histogram_NDMI_observations.png",
+        bg = "white",width = 10, height = 8)
 
 # Compute daily means
 df_daily_ndmi <- df_long %>% 
@@ -227,17 +227,24 @@ valid_counts_by_id <- df_daily_ndmi %>%
   group_by(ObservationID) %>%
   summarise(valid_count = sum(!is.na(DailyMean)))
 
+df_filtered <- df_daily_ndmi %>%
+  inner_join(valid_counts_by_id, by = "ObservationID") %>%
+  filter(valid_count >= thr_nobs) %>%
+  select(-valid_count)
+
+
 # Filter out observations with fewer than X observations
 df_filtered <- df_daily_ndmi %>%
   inner_join(valid_counts_by_id, by = "ObservationID") %>%
-  filter(valid_count >= percentile_75,
+  filter(valid_count >= thr_nobs,
          format(Time, "%Y") == "2020") %>% 
-  select(-valid_count)  # Optionally remove the valid_count column
+  select(-valid_count)  
 
 ggplot(df_filtered) +
     geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
     theme_cowplot()
-ggsave2("figures/Timeseries_NDMI_randompoints.png",width = 10, height = 8)
+ggsave2("figures/Timeseries_NDMI_randompoints.png",
+        bg = "white",width = 10, height = 8)
 
 ggplot(df_filtered) +
   geom_histogram(aes(x = DailyMean)) +
@@ -250,4 +257,5 @@ ggplot(df_filtered) +
   labs(title = "Histogram of NDMI values") +
   theme_cowplot()
 
-ggsave2("figures/Histogram_NDMI.png",width = 10, height = 8)
+ggsave2("figures/Histogram_NDMI.png",
+        bg = "white",width = 10, height = 8)
