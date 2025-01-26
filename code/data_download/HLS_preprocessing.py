@@ -169,32 +169,49 @@ def calc_index(files,
     # Band name pairs
     if files[0][:7] == 'HLS.S30':
         hls_band_dict = {
-            "BLUE" : "B02",
-            "GREEN" : "B03",
-            "RED" : "B04",
-            "NIR" : "B8A",
-            "SWIR1" : "B11",
-            "SWIR2" : "B12",
-            "Fmask" : "Fmask"
+            "COASTAL-AEROSOL": "B01",
+            "BLUE": "B02",
+            "GREEN": "B03",
+            "RED": "B04",
+            "RED-EDGE1": "B05",
+            "RED-EDGE2": "B06",
+            "RED-EDGE3": "B07",
+            "NIR-Broad": "B08",
+            "NIR1": "B8A",
+            "WATER-VAPOR": "B09",
+            "CIRRUS": "B10",
+            "SWIR1": "B11",
+            "SWIR2": "B12",
+            "FMASK": "Fmask",
+            "VZA": "VZA",
+            "VAA": "VAA",
+            "SZA": "SZA",
+            "SAA": "SAA",
         }
     else:
         hls_band_dict = {
-            "BLUE" : "B02",
-            "GREEN" : "B03",
-            "RED" : "B04",
-            "NIR" : "B05",
-            "SWIR1" : "B06",
-            "SWIR2" : "B07",
-            "TIR1" : "B10",
-            "TIR2" : "B11",
-            "Fmask" : "Fmask"
+            "COASTAL-AEROSOL": "B01",
+            "BLUE": "B02",
+            "GREEN": "B03",
+            "RED": "B04",
+            "NIR1": "B05",
+            "SWIR1": "B06",
+            "SWIR2": "B07",
+            "CIRRUS": "B09",
+            "TIR1": "B10",
+            "TIR2": "B11",
+            "FMASK": "Fmask",
+            "VZA": "VZA",
+            "VAA": "VAA",
+            "SZA": "SZA",
+            "SAA": "SAA",
         }
     
     print(f"Calculating: {index_name}")
     
     if index_name == "NDMI":
         # load spectral bands needed for NDMI
-        nir = load_rasters(files, "NIR",
+        nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
@@ -211,7 +228,7 @@ def calc_index(files,
 
     elif index_name == "NDVI":
         # load spectral bands needed for NDVI
-        nir = load_rasters(files, "NIR",
+        nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
@@ -228,8 +245,8 @@ def calc_index(files,
         SCALE_FACTOR = 1
 
     elif index_name == "NBR":
-        # load spectral bands needed for NDMI
-        nir = load_rasters(files, "NIR",
+        # load spectral bands needed for NBR
+        nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
@@ -248,7 +265,7 @@ def calc_index(files,
         
     elif index_name == "GEMI":
         # load spectral bands needed for NDMI
-        nir = load_rasters(files, "NIR",
+        nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
@@ -271,7 +288,7 @@ def calc_index(files,
     spectral_index.attrs['scale_factor'] = SCALE_FACTOR
 
     # ---- MASKING ----
-    # Compute Water mask 
+    # Compute Water mask
     tile_name = files[0].split('/')[-1]
     filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask.tif"
     wm_path = f"{out_folder}{filename}"
@@ -287,7 +304,7 @@ def calc_index(files,
     else:
         print("Computing NDWI water mask.")
         # load spectral bands needed for NDWI
-        nir = load_rasters(files, "NIR",
+        nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict, region = region,
                            chunk_size = chunk_size)
         
@@ -321,7 +338,7 @@ def calc_index(files,
             raster_path = wm_path, driver = 'COG')
     
     # Fmask
-    fmask = load_rasters(files, "Fmask",
+    fmask = load_rasters(files, "FMASK",
                          band_dict = hls_band_dict,region=region,chunk_size=chunk_size)
     
     # Convert Fmask to quality mask
@@ -358,13 +375,14 @@ def joblib_hls_preprocessing(files:list,
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
         if os.path.exists(out_path):
             
-            if REMASK_DATA:
-                print(f"{out_name} exists but remasking is applied.")
+            if OVERWRITE_DATA:
+                print(f"{out_name} exists but will be overwritten.")
                 
                 # Load existing data
                 spectral_index = calc_index(files, index_name,
                                             out_folder = out_folder,
                                             bit_nums = bit_nums)
+                print(f"{index_name} index calculated.", end = "\n")
                 
             else:
                 print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
@@ -402,10 +420,10 @@ if __name__ == "__main__":
     gdal.SetConfigOption('GDAL_HTTP_RETRY_DELAY', '0.5')
 
     # Define bands/indices to process
-    band_index = ["NBR"]
+    band_index = ["NDMI", "NDVI"]
 
-    # Apply new masking methods to existing tiles?
-    REMASK_DATA = False
+    # Overwrite existing tiles?
+    OVERWRITE_DATA = True
     
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
@@ -439,7 +457,7 @@ if __name__ == "__main__":
     # sindex = mgrs_tile_centroids.geometry.sindex.nearest(aois.geometry.centroid)
 
     # # Query tile in all MGRS tiles
-    # nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:] 
+    # nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:]
 
     # optimal_tile_name = nearest_mgrs_tile_centroid.Name.item()
     optimal_tile_name = "54WXE"
@@ -448,21 +466,21 @@ if __name__ == "__main__":
     hls_parent_path = "/home/nrietz/scratch/raster/hls/"
 
     hls_granules_paths = get_hls_tif_list(hls_parent_path)
-    
+
     if "NBR" in band_index:
         # Define time search window
         # START_DATE = "2020-05-01T00:00:00" #full growing season
-        # START_DATE = "2020-09-10T00:00:00"
-        START_DATE = "2019-09-12T00:00:00"
+        START_DATE = "2020-09-10T00:00:00"
+        # START_DATE = "2019-09-12T00:00:00"
 
         # END_DATE = "2020-10-15T23:59:59" #full growing season
-        # END_DATE = "2020-09-12T23:59:59"
-        END_DATE = "2019-09-13T23:59:59"
+        END_DATE = "2020-09-12T23:59:59"
+        # END_DATE = "2019-09-13T23:59:59"
 
         hls_granules_paths = search_files_by_doy_range(hls_granules_paths, START_DATE, END_DATE)
-    
+
     print(f"{len(hls_granules_paths)} granules found to process.")
-    
+
     # define bits to mask out
     """
     7-6 = aerosols
@@ -482,4 +500,4 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
     
     Parallel(n_jobs=N_CORES, backend='loky')(
-        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,out_folder,REMASK_DATA) for files in hls_granules_paths)
+        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,out_folder,OVERWRITE_DATA) for files in hls_granules_paths)
