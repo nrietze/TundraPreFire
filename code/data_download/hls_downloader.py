@@ -1,4 +1,3 @@
-# %%
 """
 Script to download and preprocess HLS data.
 - HLS data search
@@ -399,7 +398,7 @@ if __name__ == "__main__":
     MAX_CLOUD_COVER = 80
 
     # define chunk size for data loading
-    chunk_size = dict(band=1, x=512, y=512)
+    chunk_size = dict(band=1, x=3600, y=3600)
 
     # Load AOIs
     # aois = gp.read_file("data/feature_layers/roi.geojson")
