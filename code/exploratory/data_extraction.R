@@ -87,10 +87,11 @@ random_points <- spatSample(rast_binned, nsample,
 
 # Export points as gpkg
 writeVector(random_points, filename = "~/data/feature_layers/random_points.shp")
+random_points <- vect("~/data/feature_layers/random_points.shp")
 
 # Extract data at random points 
-dnbr_sample <- terra::extract(dnbr, random_points,ID = FALSE, xy = TRUE) %>% 
-  drop_na() 
+dnbr_sample <- terra::extract(dnbr, random_points,
+                              ID = FALSE, xy = FALSE) 
 
 p3 <- ggplot(data = dnbr_sample, aes(x = NBR)) +
   geom_histogram(binwidth = binwidth, color = "black", fill = "orange") +
@@ -159,8 +160,12 @@ ndmi_files_l30 <- list.files(HLS_DIR,
                              pattern = "L30.T54WXE.*NDVI\\.tif$"
 )
 
-ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30[1:length(ndmi_files_s30)-1]))
+ndmi_s30_list <- lapply(paste0(HLS_DIR, ndmi_files_s30),rast)
+
+ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30[1:(length(ndmi_files_s30)-2)]))
 ndmi_s30 <- sapp(ndmi_s30, assign_rast_time)
+
+ndmi_l30_list <- lapply(paste0(HLS_DIR, ndmi_files_l30),rast)
 
 ndmi_l30 <- rast(paste0(HLS_DIR, ndmi_files_l30))
 ndmi_l30 <- sapp(ndmi_l30, assign_rast_time)
@@ -176,11 +181,13 @@ df_ndmi <- terra::extract(rt, random_points) %>%
   t() %>%
   as_tibble()
 
+df_ndmi <- cbind(df_ndmi,dnbr_sample$NBR)
+
 summary(df_ndmi)
 
-write.csv2(df_ndmi,paste0(HLS_DIR,"ndmi_sampled.csv"))
+write.csv2(df_ndmi,paste0(HLS_DIR,"ndvi_sampled.csv"))
 
-df <- read.csv2(paste0(HLS_DIR,"ndmi_sampled.csv")) %>% 
+df <- read.csv2(paste0(HLS_DIR,"ndvi_sampled.csv")) %>% 
   select(-1) %>% 
   as_tibble()
 
@@ -241,9 +248,10 @@ df_filtered <- df_daily_ndmi %>%
   select(-valid_count)  
 
 ggplot(df_filtered) +
-    geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
-    theme_cowplot()
-ggsave2("figures/Timeseries_NDMI_randompoints.png",
+  geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
+  labs(y = "Daily mean NDVI\n (per point location)") +
+  theme_cowplot()
+ggsave2("figures/Timeseries_NDVI_randompoints.png",
         bg = "white",width = 10, height = 8)
 
 ggplot(df_filtered) +
@@ -254,8 +262,8 @@ ggplot(df_filtered) +
                 label = paste("Mean = ", 
                               round(mean(df_filtered$DailyMean,na.rm = T), 2)), 
             color = "red", vjust = -1) +
-  labs(title = "Histogram of NDMI values") +
+  labs(title = "Histogram of NDVI values") +
   theme_cowplot()
 
-ggsave2("figures/Histogram_NDMI.png",
+ggsave2("figures/Histogram_NDVI.png",
         bg = "white",width = 10, height = 8)
