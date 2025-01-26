@@ -1,10 +1,3 @@
----
-title: "Extracting data and analysis of dNBR"
-output: html_notebook
----
-
-Data pre-processing is handled in python. Sampling pixel values and data analysis in R.
-```{r}
 library(terra)
 library(sf)
 library(tidyterra)
@@ -18,81 +11,22 @@ library(patchwork)
 print(getwd())
 
 set.seed(10)
-```
 
 ## Loading and preparing data:
-```{r}
 dnbr <- rast(
   "~/data/raster/hls/dNBR/2020_dNBR.tif"
 ) * 1000
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters_2020 <- vect(
-  "data/feature_layers/fire_atlas/final_viirs2020.gpkg"
+  "~/data/feature_layers/fire_atlas/final_viirs2020.gpkg"
 )
-roi <- vect("data/feature_layers/roi.geojson")
+roi <- vect("~/data/feature_layers/roi.geojson")
 
 fire_within_roi <- terra::intersect(fire_perimeters_2020, roi)
-```
-
-## Summarize fire events in study area (CAVM extent of Russian tundra)
-```{r}
-FNAME_VIIRS_PERIMS <- "data/feature_layers/viirs_perimeters_in_cavm.gpkg"
-
-# Assemble VIIRS perimeters if not done so already.
-if (!file.exists(FNAME_VIIRS_PERIMS)){
-
-  # Load all VIIRS fire atlas perimeters
-  viirs_files <- list.files(
-    "data/feature_layers/fire_atlas",
-    "^final_viirs\\d{4}\\.gpkg$",
-    full.names = TRUE
-  )
-  years <- as.numeric(sub(".*final_viirs(\\d{4})\\.gpkg$", "\\1", viirs_files))
-
-  viirs_files <- viirs_files[years >= 2016] # Filter out data before 2016
-
-  # Load VIIRS perimeters
-  viirs_perims_list <- lapply(viirs_files, vect)
-  viirs_perims_list <- lapply(viirs_files, read_sf) # with sf package
-  
-  viirs_perims <- do.call(rbind, viirs_perims_list)
-  viirs_perims
-
-  # load CAVM outlines and project to VIIRS CRS
-  cavm_zones <- vect("data/feature_layers/cavm_vegetation_zones.gpkg") %>%
-    project(crs(viirs_perims))
-  cavm_zones <- read_sf("data/feature_layers/cavm_vegetation_zones.gpkg") %>%
-    st_transform(st_crs(viirs_perims))
-
-  # Clip VIIRS perimeters with CAVM outline
-  viirs_perims_cavm_index <- is.related(viirs_perims, cavm_zones, "intersects")
-  viirs_perims_cavm <- viirs_perims[viirs_perims_cavm_index]
-
-  # Filter based on centroids
-  viirs_centroids <- centroids(viirs_perims)
-  centroids_in_cavm <- terra::intersect(cavm_zones, viirs_centroids)
-  selected_viirs_perims <- viirs_perims[!is.na(centroids_in_cavm[, 2]), ]
-
-  # Fill holes in perims first
-  viirs_perims_filled <- st_make_valid(viirs_perims)
-  viirs_perims_cavm <- st_intersection(viirs_perims_filled,cavm_zones)
-
-  # Export intersection
-  writeVector(
-    viirs_perims_cavm,
-    FNAME_VIIRS_PERIMS,
-    overwrite = TRUE
-  )
-}
-
-viirs_perims_cavm <- vect(FNAME_VIIRS_PERIMS)
-
-```
 
 
 ## Dissolve fire perimeters that lie in the ROI to one
-```{r}
 fire_union_roi <- terra::aggregate(fire_within_roi) %>%
   project(crs(dnbr))
 
@@ -100,8 +34,7 @@ fire_perimeter_buffered <- buffer(fire_union_roi, 1200)
 
 plot(fire_union_roi)
 plot(fire_perimeter_buffered,add = TRUE)
-```
-```{r}
+
 binwidth <- 20
 
 dnbr_in_perimeter <- mask(dnbr, fire_perimeter_buffered, updatevalue = NA)
@@ -117,19 +50,17 @@ p2 <- ggplot(data = dnbr_in_perimeter, aes(x = NBR)) +
   geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
   xlim(c(-500,1000)) +
   labs(
-      title = "Histogram of dNBR",
-      x = "dNBR Values",
-      y = "Frequency"
-    ) +
+    title = "Histogram of dNBR",
+    x = "dNBR Values",
+    y = "Frequency"
+  ) +
   theme_cowplot()
 
 p1 + p2
 
 # ggsave2("figures/expl_dNBR_hist.png",bg = "white")
-```
 
 ## Extract pixels within fire perimeter
-```{r}
 # Set dNBR bin size for sampling (dNBR * 1000)
 binwidth <- 20
 
@@ -155,7 +86,7 @@ random_points <- spatSample(rast_binned, nsample,
   mask(fire_perimeter_buffered) 
 
 # Export points as gpkg
-# writeVector(random_points, filename = "data/feature_layers/random_points.gpkg")
+writeVector(random_points, filename = "~/data/feature_layers/random_points.shp")
 
 # Extract data at random points 
 dnbr_sample <- terra::extract(dnbr, random_points,ID = FALSE, xy = TRUE) %>% 
@@ -165,10 +96,10 @@ p3 <- ggplot(data = dnbr_sample, aes(x = NBR)) +
   geom_histogram(binwidth = binwidth, color = "black", fill = "orange") +
   xlim(c(-500,1000)) +
   labs(
-      title = "Histogram of dNBR (sampled)",
-      x = "dNBR Values",
-      y = "Frequency"
-    ) +
+    title = "Histogram of dNBR (sampled)",
+    x = "dNBR Values",
+    y = "Frequency"
+  ) +
   theme_cowplot()
 
 p2 / p3 
@@ -176,10 +107,8 @@ p2 / p3
 
 # Export dataframe to csv
 # write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
-```
 
 ## Check spatial autocorrelation of Random points:
-```{r}
 library(spdep)
 
 knn <- knn2nb(knearneigh(dnbr_sample[c("x","y")], k = 5))
@@ -197,16 +126,13 @@ ggplot() +
                        name = "dNBR") +
   geom_spatvector(data = random_points) +
   labs(title = sprintf("Randomly samlped points\nMoran's I: %.2f (p-value: %.4f)", 
-       moran_i$estimate[1],moran_i$p.value)) +                   
+                       moran_i$estimate[1],moran_i$p.value)) +                   
   theme_cowplot()
 
 # ggsave2("figures/stratified_random_points_moranI.png",bg = "white")
 
-```
-
 ## Stack NDMI rasters
-```{r}
-HLS_DIR <- "data/raster/hls/"
+HLS_DIR <- "~/data/raster/hls/"
 
 assign_rast_time <- function(lyr) {
   # Extract the layer's timestamp
@@ -214,26 +140,26 @@ assign_rast_time <- function(lyr) {
     ".*\\.(\\d{7}T\\d{6}).*\\.tif$", "\\1",
     basename(sources(lyr))
   )
-
+  
   # Convert string to datetime
   datetime <- as.POSIXct(timestamp, format = "%Y%jT%H%M%S", tz = "UTC")
-
+  
   # Assign time to raster layer
   terra::time(lyr, "seconds") <- datetime
   # names(lyr) <- datetime
-
+  
   return(lyr)
 }
 
 # List NDMI COGs
 ndmi_files_s30 <- list.files(HLS_DIR,
-  pattern = "S30.T54WXE.*NDMI_cropped\\.tif$"
+                             pattern = "S30.T54WXE.*NDMI\\.tif$"
 )
 ndmi_files_l30 <- list.files(HLS_DIR,
-  pattern = "L30.T54WXE.*NDMI_cropped\\.tif$"
+                             pattern = "L30.T54WXE.*NDMI\\.tif$"
 )
 
-ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30))
+ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30[1:length(ndmi_files_s30)-1]))
 ndmi_s30 <- sapp(ndmi_s30, assign_rast_time)
 
 ndmi_l30 <- rast(paste0(HLS_DIR, ndmi_files_l30))
@@ -242,47 +168,86 @@ ndmi_l30 <- project(ndmi_l30, crs(ndmi_s30))
 
 ndmi <- c(ndmi_s30, ndmi_l30)
 ndmi
-```
 
-Extract NDMI values at random points
-```{r}
 # create raster time series object
 rt <- rts(ndmi, time(ndmi))
 
 df_ndmi <- terra::extract(rt, random_points) %>%
   t() %>%
-  as.tibble()
+  as_tibble()
 
 summary(df_ndmi)
 
-# Reshape from wide to long format
-count_df <- df_ndmi %>%
-  summarise(across(everything(), ~ sum(!is.na(.)))) %>% # Count non-NA values
-  pivot_longer(
-    cols = everything(),
-    names_to = "datetime",
-    values_to = "count"
-  ) %>%
-  mutate(
-    datetime = ymd_hms(datetime),
-    scene_nr = 1:nrow(.)
-  ) 
+write.csv2(df_ndmi,paste0(HLS_DIR,"ndmi_sampled.csv"))
 
-count_df %>%
-  select(-scene_nr) %>%
-  gt() %>%
-  # gtsave("data/tables/Nsamples_NDMI.html") %>%
-  print()
+df <- df_ndmi
+timestamps <- as.POSIXct(colnames(df), format = "%Y-%m-%d %H:%M:%S")
 
-# Plot the number of non-NA observations over time
-ggplot(count_df, aes(x = scene_nr, y = count)) +
-  geom_bar(stat = "identity", width = 0.8) +
-  labs(
-    x = "",
-    y = "Number of Non-NA Observations"
-  ) +
-  scale_x_discrete(labels = format(count_df$datetime, "%d %b")) +
+df_long <- df %>%
+  mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
+  gather(key = "Time", value = "NDMI", -ObservationID) %>% 
+  mutate(Time = as.POSIXct(Time, format = "%Y-%m-%d %H:%M:%S")) 
+
+df_nobs <- df_long %>% 
+  group_by(ObservationID) %>% 
+  summarize(valid_count = sum(!is.na(NDMI)))
+
+thr_nobs <- quantile(df_nobs$valid_count, 0.75, na.rm = TRUE)
+
+ggplot(df_nobs) +
+  geom_histogram(aes(x = valid_count)) +
+  geom_vline(aes(xintercept = thr_nobs),
+             color = "red", linetype = "dashed", size = 1) + 
+  geom_text(aes(x = thr_nobs-10, y = 300, 
+                label = paste("75%-ile = ", round(thr_nobs, 2))), 
+            color = "red", vjust = -1) +
+  geom_vline(xintercept = 170,
+             color = "blue", linetype = "dashed", size = 1) +  
+  geom_text(aes(x = 170, y = 200, 
+                label = "170"), 
+            color = "blue", vjust = -1) +
+  labs(title = "Number of non-NA observations",
+       subtitle = "And thresholds of valid data (blue") +
   theme_cowplot()
-# ggsave2("figures/Nsamples_NDMI.png",bg = "white")
 
-```
+ggsave2("figures/Histogram_NDMI_observations.png",width = 10, height = 8)
+
+df_filtered <- df_daily_ndmi %>%
+  inner_join(valid_counts_by_id, by = "ObservationID") %>%
+  filter(valid_count >= percentile_75) %>%
+  select(-valid_count)  # Optionally remove the valid_count column
+
+# Compute daily means
+df_daily_ndmi <- df_long %>% 
+  group_by(Time, ObservationID) %>% 
+  summarise(DailyMean = mean(NDMI, na.rm = TRUE))
+
+# get nr. of valid observations
+valid_counts_by_id <- df_daily_ndmi %>%
+  group_by(ObservationID) %>%
+  summarise(valid_count = sum(!is.na(DailyMean)))
+
+# Filter out observations with fewer than X observations
+df_filtered <- df_daily_ndmi %>%
+  inner_join(valid_counts_by_id, by = "ObservationID") %>%
+  filter(valid_count >= percentile_75,
+         format(Time, "%Y") == "2020") %>% 
+  select(-valid_count)  # Optionally remove the valid_count column
+
+ggplot(df_filtered) +
+    geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
+    theme_cowplot()
+ggsave2("figures/Timeseries_NDMI_randompoints.png",width = 10, height = 8)
+
+ggplot(df_filtered) +
+  geom_histogram(aes(x = DailyMean)) +
+  geom_vline(xintercept = mean(df_filtered$DailyMean,na.rm = T),
+             color = "red", linetype = "dashed", size = 1) + 
+  geom_text(x = 0.2, y = 1e3, 
+                label = paste("Mean = ", 
+                              round(mean(df_filtered$DailyMean,na.rm = T), 2)), 
+            color = "red", vjust = -1) +
+  labs(title = "Histogram of NDMI values") +
+  theme_cowplot()
+
+ggsave2("figures/Histogram_NDMI.png",width = 10, height = 8)
