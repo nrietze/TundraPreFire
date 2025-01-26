@@ -167,7 +167,7 @@ def calc_index(files,
                region = None): 
     
     # Band name pairs
-    if files[0][:7] == 'HLS.S30':
+    if 'HLS.S30' in files[0]:
         hls_band_dict = {
             "COASTAL-AEROSOL": "B01",
             "BLUE": "B02",
@@ -318,7 +318,7 @@ def calc_index(files,
         ndwi.data = (green - nir) / (green + nir)
         
         # Exclude data outside valid value range
-        ndwi = ndwi.where((ndwi < -1) & (ndwi > 1), np.nan)
+        ndwi = ndwi.where((ndwi >= -1) & (ndwi <= 1), np.nan)
         
         ndwi.attrs['long_name'] = "NDWI"
         
