@@ -336,12 +336,28 @@ def calc_index(files,
         water_mask = ndwi > otsu_thresh
         
         # Export water mask as COG tiff
-        water_mask.astype(int).rio.to_raster(
+        water_mask.astype(float).rio.to_raster(
             raster_path = wm_path, driver = 'COG')
     
     # Fmask
-    fmask = load_rasters(files, "FMASK",
-                         band_dict = hls_band_dict,region=region,chunk_size=chunk_size)
+    tile_name = files[0].split('/')[-1]
+    filename = f"{tile_name.split('v2.0')[0]}v2.0_Fmask.tif"
+    fmask_path = f"{out_folder}{filename}"
+    
+    # Check if that tile's Fmask tiff exists
+    if os.path.exists(fmask_path):
+        print("Loading existing Fmask.")
+        fmask = rxr.open_rasterio(fmask_path,
+                                  chunks=chunk_size,
+                                  masked=True).squeeze('band', drop=True)
+    
+    else:
+        print("Downloading Fmask.")
+        # Load tile's Fmask
+        fmask = load_rasters(files, "Fmask",region=region,chunk_size=chunk_size)
+
+        # Export scene's Fmask
+        fmask.rio.to_raster(raster_path = fmask_path, driver = 'COG')
     
     # Convert Fmask to quality mask
     mask_layer = create_quality_mask(fmask.data, bit_nums)
