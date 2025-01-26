@@ -166,9 +166,9 @@ def process_granule(
                                                         ).astype(bool)
             else:
                 logging.info("Computing NDWI water mask.")
-                try:
+                if os.path.basename(quality_url).split('.')[1] == "S30":
                     nir_url = quality_url.replace("Fmask","B8A")
-                except: 
+                else: 
                     nir_url = quality_url.replace("Fmask","B05")
                 green_url = quality_url.replace("Fmask","B03")
                 
