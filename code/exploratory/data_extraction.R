@@ -181,27 +181,27 @@ df_ndmi <- terra::extract(rt, random_points) %>%
   t() %>%
   as_tibble()
 
-df_ndmi <- cbind(df_ndmi,dnbr_sample$NBR)
-
 summary(df_ndmi)
 
 write.csv2(df_ndmi,paste0(HLS_DIR,"ndvi_sampled.csv"))
 
-df <- read.csv2(paste0(HLS_DIR,"ndvi_sampled.csv")) %>% 
-  select(-1) %>% 
-  as_tibble()
+# Load data sample
+index_name <- "NDMI"
 
-timestamps <- as.POSIXct(colnames(df), format = "X%Y.%m.%d.%H.%M.%S")
-timestamps
+df <- read.csv2(sprintf("%s%s_sampled.csv",HLS_DIR,tolower(index_name))) %>% 
+  select(-1) %>% 
+  mutate(dNBR = dnbr_sample$NBR) %>% 
+  as_tibble()
 
 df_long <- df %>%
   mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-  gather(key = "Time", value = "NDMI", -ObservationID) %>% 
+  gather(key = "Time", value = index_name, -c(ObservationID,dNBR)) %>% 
   mutate(Time = as.POSIXct(Time, format = "X%Y.%m.%d.%H.%M.%S")) 
 
 df_nobs <- df_long %>% 
+  select(-dNBR) %>% 
   group_by(ObservationID) %>% 
-  summarize(valid_count = sum(!is.na(NDMI)))
+  summarize(valid_count = sum(!is.na(index_name)))
 
 thr_nobs <- quantile(df_nobs$valid_count, 0.75, na.rm = TRUE)
 
@@ -218,27 +218,22 @@ ggplot(df_nobs) +
                 label = "170"), 
             color = "blue", vjust = -1) +
   labs(title = "Number of non-NA observations",
-       subtitle = "And thresholds of valid data (blue") +
+       subtitle = "Thresholds of valid data (blue = visually, red = 75% percentile)") +
   theme_cowplot()
 
-ggsave2("figures/Histogram_NDMI_observations.png",
+ggsave2(sprintf("figures/Histogram_%s_observations.png",index_name),
         bg = "white",width = 10, height = 8)
 
 # Compute daily means
 df_daily_ndmi <- df_long %>% 
   group_by(Time, ObservationID) %>% 
-  summarise(DailyMean = mean(NDMI, na.rm = TRUE))
+  summarise(DailyMean = mean(index_name, na.rm = TRUE),
+            dNBR = first(dNBR))
 
 # get nr. of valid observations
 valid_counts_by_id <- df_daily_ndmi %>%
   group_by(ObservationID) %>%
   summarise(valid_count = sum(!is.na(DailyMean)))
-
-df_filtered <- df_daily_ndmi %>%
-  inner_join(valid_counts_by_id, by = "ObservationID") %>%
-  filter(valid_count >= thr_nobs) %>%
-  select(-valid_count)
-
 
 # Filter out observations with fewer than X observations
 df_filtered <- df_daily_ndmi %>%
@@ -247,13 +242,30 @@ df_filtered <- df_daily_ndmi %>%
          format(Time, "%Y") == "2020") %>% 
   select(-valid_count)  
 
+# Time series for all points
 ggplot(df_filtered) +
   geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
-  labs(y = "Daily mean NDVI\n (per point location)") +
+  labs(y = sprintf("Daily mean %s\n (per point location)",index_name)) +
   theme_cowplot()
-ggsave2("figures/Timeseries_NDVI_randompoints.png",
+
+ggsave2(sprintf("figures/Timeseries_%s_randompoints.png",index_name),
         bg = "white",width = 10, height = 8)
 
+# Time series for 64 random points
+rand_id <- sample(unique(df_filtered$ObservationID), 64)
+
+df_filtered %>% 
+  filter(ObservationID %in% rand_id) %>% 
+  ggplot() +
+    geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
+    labs(y = sprintf("Daily mean %s\n (per point location)",index_name)) +
+    facet_wrap(~ObservationID) +
+    theme_cowplot()
+
+ggsave2(sprintf("figures/%s_perpoint.png",index_name),
+            bg = "white",width = 16, height = 16)
+    
+# Histogram of index values
 ggplot(df_filtered) +
   geom_histogram(aes(x = DailyMean)) +
   geom_vline(xintercept = mean(df_filtered$DailyMean,na.rm = T),
@@ -262,8 +274,16 @@ ggplot(df_filtered) +
                 label = paste("Mean = ", 
                               round(mean(df_filtered$DailyMean,na.rm = T), 2)), 
             color = "red", vjust = -1) +
-  labs(title = "Histogram of NDVI values") +
+  labs(title = sprintf("Histogram of %s values",index_name)) +
   theme_cowplot()
 
-ggsave2("figures/Histogram_NDVI.png",
+ggsave2(sprintf("figures/Histogram_%s.png",index_name),
         bg = "white",width = 10, height = 8)
+
+# Scatterplot with dNBR color
+ggplot(df_filtered) +
+  geom_point(aes(x = DailyMean,y = dNBR),alpha = .2) +
+  labs(x = sprintf("Daily mean %s\n (per point location)",index_name),
+       y = "dNBR") +
+ ¨¨ theme_cowplot()
+ä
