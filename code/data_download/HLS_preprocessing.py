@@ -318,7 +318,7 @@ def calc_index(files,
         ndwi.data = (green - nir) / (green + nir)
         
         # Exclude data outside valid value range
-        ndwi = ndwi.where((ndwi >= -1) & (ndwi <= 1), np.nan)
+        # ndwi = ndwi.where((ndwi >= -1) & (ndwi <= 1), np.nan)
         
         ndwi.attrs['long_name'] = "NDWI"
         
