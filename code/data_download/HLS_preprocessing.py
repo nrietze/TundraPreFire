@@ -16,19 +16,17 @@ import re
 from glob import glob
 import time
 import datetime
+import multiprocessing
 import numpy as np
 import dask.array as da
 from joblib import Parallel, delayed
-import multiprocessing
 
-import geopandas as gp
 from osgeo import gdal
 import xarray as xr
 from xrspatial import multispectral
 import rioxarray as rxr
-import earthaccess
 
-from skimage.filters import threshold_multiotsu, threshold_otsu
+from skimage.filters import threshold_multiotsu
 
 # %% Define user functions
 # Function to gather a list of lists with tiff files
@@ -97,8 +95,8 @@ def scaling(band):
     return(band_out)
 
 # Define bit masking function
-def create_quality_mask(quality_data, 
-                        bit_nums: list = [1, 2, 3, 4]):
+def create_quality_mask(quality_data: np.array,
+                        bit_nums: list):
     """
     Uses the Fmask layer and bit numbers to create a binary mask of good pixels.
     By default, bits 1-5 are used.
@@ -114,10 +112,11 @@ def create_quality_mask(quality_data,
     return mask_array
 
 # Define raster loading function
-def load_rasters(index_band_links, band_name,
-                 band_dict = {"FMASK" : "Fmask"}, 
-                 region = None, 
-                 chunk_size = dict(band=1, x=512, y=512)):
+def load_rasters(index_band_links: list,
+                 band_name: str,
+                 band_dict: dict,
+                 chunk_size: dict,
+                 region = None):
     """
     Function to load COG rasters of selected bands into memory.
 
@@ -144,9 +143,9 @@ def load_rasters(index_band_links, band_name,
     
     if region is not None:
         # reproject AOIs to HLS CRS
-        regionUTM = region.to_crs(raster.spatial_ref.crs_wkt)
+        region_utm = region.to_crs(raster.spatial_ref.crs_wkt)
         
-        raster = raster.rio.clip(regionUTM.geometry.values, regionUTM.crs, all_touched=True)
+        raster = raster.rio.clip(region_utm.geometry.values, region_utm.crs, all_touched=True)
     
     # print("The COGs have been loaded into memory!")
 
@@ -160,12 +159,11 @@ def load_rasters(index_band_links, band_name,
     return raster
 
 # Calculate spectral index
-def calc_index(files, 
-               index_name,
-               bit_nums,
-               out_folder,
-               region = None): 
-    
+def calc_index(files: list,
+               index_name: str,
+               bit_nums: list,
+               out_folder: str,
+               region = None):
     # Band name pairs
     if 'HLS.S30' in files[0]:
         hls_band_dict = {
@@ -276,8 +274,9 @@ def calc_index(files,
         
         spectral_index = nir.copy()
         
-        term1 = (2 * (nir**2 - red**2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
-        spectral_index_data = term1 * (1 - 0.25 * term1) - ((red - 0.125) / (1 - red))
+        with np.errstate(divide='ignore'): #to ignore divide by zero
+            term1 = (2 * (nir**2 - red**2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
+            spectral_index_data = term1 * (1 - 0.25 * term1) - ((red - 0.125) / (1 - red))
         
         # Replace the dummy xarray.DataArray data with the new spectral index data
         spectral_index.data = spectral_index_data
@@ -315,7 +314,8 @@ def calc_index(files,
                              chunk_size = chunk_size)
         
         ndwi = nir.copy()
-        ndwi.data = (green - nir) / (green + nir)
+        with np.errstate(divide='ignore'): #to ignore divide by zero
+            ndwi.data = (green - nir) / (green + nir)
         
         # Exclude data outside valid value range
         # ndwi = ndwi.where((ndwi >= -1) & (ndwi <= 1), np.nan)
@@ -373,11 +373,11 @@ def calc_index(files,
     
     return spectral_index_qf
 
-def joblib_hls_preprocessing(files:list, 
-                             band_index:str,
-                             bit_nums:list,
+def joblib_hls_preprocessing(files: list,
+                             band_index: str,
+                             bit_nums: list,
                              out_folder: str,
-                             REMASK_DATA:bool):
+                             OVERWRITE_DATA = False):
     start_time = time.time()
     
     original_name = files[0].split('/')[-1]
@@ -409,7 +409,7 @@ def joblib_hls_preprocessing(files:list,
         # "else" necessary to handle remasking of existing tiles in previous "if"
         else: 
             # Calculate spectral index
-            spectral_index = calc_index(files, index_name, 
+            spectral_index = calc_index(files, index_name,
                                         out_folder = out_folder,
                                         bit_nums = bit_nums)
             
@@ -472,7 +472,7 @@ if __name__ == "__main__":
     OPTIMAL_TILE_NAME = "54WXE"
 
     # Define bands/indices to process
-    band_index = ["NBR"]
+    band_index = ["NDMI","NDVI"]
 
     # Overwrite existing tiles?
     OVERWRITE_DATA = True
@@ -485,13 +485,13 @@ if __name__ == "__main__":
 
     hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
 
-    if "NBR" in band_index:
+    if any(pattern in band_index for pattern in ["NBR","GEMI"]):
         # Define time search window
-        # START_DATE = "2020-05-01T00:00:00" #full growing season
+        # START_DATE = "2020-05-01T00:00:00" # full growing season
         START_DATE = "2020-09-10T00:00:00"
         # START_DATE = "2019-09-12T00:00:00"
 
-        # END_DATE = "2020-10-15T23:59:59" #full growing season
+        # END_DATE = "2020-10-15T23:59:59" # full growing season
         END_DATE = "2020-09-12T23:59:59"
         # END_DATE = "2019-09-13T23:59:59"
 
