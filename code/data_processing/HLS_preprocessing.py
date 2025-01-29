@@ -210,13 +210,16 @@ def calc_index(files: list,
     if index_name == "NDMI":
         # load spectral bands needed for NDMI
         nir = load_rasters(files, "NIR1",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict,
+                           region = region,
                            chunk_size = chunk_size)
         
         swir1 = load_rasters(files, "SWIR1",
-                             band_dict = hls_band_dict, region = region,
+                             band_dict = hls_band_dict,
+                             region = region,
                              chunk_size = chunk_size)
-        spectral_index = multispectral.ndmi(nir, swir1)
+        with np.errstate(divide='ignore'): #to ignore divide by zero
+            spectral_index = multispectral.ndmi(nir, swir1)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -227,14 +230,17 @@ def calc_index(files: list,
     elif index_name == "NDVI":
         # load spectral bands needed for NDVI
         nir = load_rasters(files, "NIR1",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict,
+                           region = region,
                            chunk_size = chunk_size)
         
         red = load_rasters(files, "RED",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict,
+                           region = region,
                            chunk_size = chunk_size)
         
-        spectral_index = multispectral.ndvi(nir, red)
+        with np.errstate(divide='ignore'): #to ignore divide by zero
+            spectral_index = multispectral.ndvi(nir, red)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -245,15 +251,18 @@ def calc_index(files: list,
     elif index_name == "NBR":
         # load spectral bands needed for NBR
         nir = load_rasters(files, "NIR1",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict,
+                           region = region,
                            chunk_size = chunk_size)
         
         swir2 = load_rasters(files, "SWIR2",
-                           band_dict = hls_band_dict, region = region,
-                           chunk_size = chunk_size)
+                             band_dict = hls_band_dict,
+                             region = region,
+                             chunk_size = chunk_size)
         
         # spectral_index = nir.copy()
-        spectral_index = multispectral.nbr(nir, swir2)
+        with np.errstate(divide='ignore'): #to ignore divide by zero
+            spectral_index = multispectral.nbr(nir, swir2)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -264,11 +273,12 @@ def calc_index(files: list,
     elif index_name == "GEMI":
         # load spectral bands needed for GEMI
         nir = load_rasters(files, "NIR1",
-                           band_dict = hls_band_dict, region = region,
+                           band_dict = hls_band_dict,
+                           region = region,
                            chunk_size = chunk_size)
         
         red = load_rasters(files, "RED",
-                           band_dict = hls_band_dict, 
+                           band_dict = hls_band_dict,
                            region = region,
                            chunk_size = chunk_size)
         
@@ -310,7 +320,8 @@ def calc_index(files: list,
                            chunk_size = chunk_size)
         
         green = load_rasters(files, "GREEN",
-                             band_dict = hls_band_dict, region = region,
+                             band_dict = hls_band_dict,
+                             region = region,
                              chunk_size = chunk_size)
         
         ndwi = nir.copy()
@@ -354,7 +365,10 @@ def calc_index(files: list,
     else:
         print("Loading Fmask.")
         # Load tile's Fmask
-        fmask = load_rasters(files, "FMASK",region=region,chunk_size=chunk_size)
+        fmask = load_rasters(files, "FMASK",
+                             band_dict = hls_band_dict,
+                             region=region,
+                             chunk_size=chunk_size)
 
         # Export scene's Fmask
         fmask.rio.to_raster(raster_path = fmask_path, driver = 'COG')
@@ -472,10 +486,10 @@ if __name__ == "__main__":
     OPTIMAL_TILE_NAME = "54WXE"
 
     # Define bands/indices to process
-    band_index = ["NDMI","NDVI"]
+    band_index = ["GEMI"]
 
     # Overwrite existing tiles?
-    OVERWRITE_DATA = True
+    OVERWRITE_DATA = False
     
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
@@ -488,12 +502,12 @@ if __name__ == "__main__":
     if any(pattern in band_index for pattern in ["NBR","GEMI"]):
         # Define time search window
         # START_DATE = "2020-05-01T00:00:00" # full growing season
-        START_DATE = "2020-09-10T00:00:00"
-        # START_DATE = "2019-09-12T00:00:00"
+        # START_DATE = "2020-09-10T00:00:00"
+        START_DATE = "2019-09-12T00:00:00"
 
         # END_DATE = "2020-10-15T23:59:59" # full growing season
-        END_DATE = "2020-09-12T23:59:59"
-        # END_DATE = "2019-09-13T23:59:59"
+        # END_DATE = "2020-09-12T23:59:59"
+        END_DATE = "2019-09-13T23:59:59"
 
         hls_granules_paths = search_files_by_doy_range(hls_granules_paths, START_DATE, END_DATE)
 
@@ -512,10 +526,10 @@ if __name__ == "__main__":
     bit_nums = [0,1,2,3,4]
 
     # output directory
-    out_folder = '/data/nrietz/raster/hls/'
+    OUT_FOLDER = '/data/nrietz/raster/hls/'
     N_CORES = -1 # -1 = all are used, -2 all but one
 
     multiprocessing.set_start_method('spawn')
     
     Parallel(n_jobs=N_CORES, backend='loky')(
-        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,out_folder,OVERWRITE_DATA) for files in hls_granules_paths)
+        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA) for files in hls_granules_paths)
