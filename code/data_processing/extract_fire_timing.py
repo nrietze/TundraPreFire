@@ -73,13 +73,14 @@ def spatial_join_multiple_files(random_points: gpd.GeoDataFrame,
 PATH_VIIRS_PERIMETERS = "../data/feature_layers/fire_atlas/"
 
 # Load VIIRS perimeters in Siberian tundra
-FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,"viirs_perimeters_in_cavm_e113.gpkg")
+FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,
+                                        "viirs_perimeters_in_cavm_e113.gpkg")
 
 if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
     print("CAVM Fire perimeter file exists, loading.")
     merged_fire_perimeters = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
 else:
-    print("Please extract VIIRS fire perimeters in CAVM extent first.")
+    print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
     pass
 
 TEST_ID = 14211 # fire ID for part of the large fire scar
@@ -97,6 +98,7 @@ df_viirs_sub_daily['datetime'] = [extract_datetime(FN) for FN in FLIST_VIIRS_SUB
 df_viirs_sub_daily = df_viirs_sub_daily.sort_values("datetime")
 
 perimeter = merged_fire_perimeters.loc[merged_fire_perimeters.fireid==TEST_ID]
+
 start_date = datetime.datetime(perimeter.tst_year.item(),
                                perimeter.tst_month.item(),
                                perimeter.tst_day.item())
@@ -108,6 +110,7 @@ end_date = datetime.datetime(perimeter.ted_year.item(),
 # filter sub-daily perimeters that are within the fire's start and end dates
 cond = np.logical_and(df_viirs_sub_daily.datetime >= start_date,
                       df_viirs_sub_daily.datetime <= end_date)
+
 df_viirs_filtered = df_viirs_sub_daily[cond]
 # %%
 # Load sample perimeter file for CRS info

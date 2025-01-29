@@ -1,1 +1,1 @@
-code/data_download/getHLS.sh code/data_download/tileid_file.txt 2019-05-01 2019-10-31 /home/nrietz/scratch/raster/hls/
+bash code/data_processing/getHLS.sh code/data_processing/tileid_file.txt 2019-05-01 2019-10-31 /home/nrietz/scratch/raster/hls/
