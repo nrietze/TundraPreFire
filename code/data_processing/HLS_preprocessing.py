@@ -377,7 +377,7 @@ def calc_index(files: list,
     mask_layer = create_quality_mask(fmask.data, bit_nums)
     
     # Apply mask and filter spectral_index image
-    merged_mask = np.logical_and(mask_layer,water_mask)
+    merged_mask = np.logical_or(mask_layer,water_mask.data.astype(bool))
     spectral_index_qf = spectral_index.where(~merged_mask)
     
     # exclude the inf values
