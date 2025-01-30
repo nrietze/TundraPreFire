@@ -37,7 +37,7 @@ def get_hls_tif_list(main_dir):
     for root, dirs, files in os.walk(main_dir):
         
         if not dirs:
-            tif_files = glob(os.path.join(root, '*.tif'))
+            tif_files = [f for f in glob(os.path.join(root, '*.tif')) if "checkpoint" not in f]
             
             hls_granule_tiffs.append(tif_files)
 
@@ -305,10 +305,6 @@ def calc_index(files: list,
     spectral_index.attrs['long_name'] = index_name
     spectral_index.attrs['scale_factor'] = SCALE_FACTOR
     
-    # reproject if Landsat
-    if 'HLS.L30' in files[0]:
-        spectral_index = spectral_index.rio.reproject(f"EPSG:{utm_epsg_code}")
-
     # ---- MASKING ----
     # Compute Water mask
     filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask.tif"
@@ -344,8 +340,8 @@ def calc_index(files: list,
         
         ndwi.attrs['long_name'] = "NDWI"
         
-        # Reproject if from Landsat
-        if 'HLS.L30' in files[0]:
+        # Reproject if not EPSG conform
+        if ndwi.rio.crs is not CRS.from_epsg(utm_epsg_code):
             with np.errstate(divide='ignore'): 
                 ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
                                             chunks=chunk_size)
@@ -363,8 +359,8 @@ def calc_index(files: list,
         # Apply threshold to mask out water
         water_mask = ndwi > otsu_thresh
         
-        # Reproject if from Landsat
-        if 'HLS.L30' in files[0]:
+        # Reproject if not EPSG conform
+        if water_mask.rio.crs is not CRS.from_epsg(utm_epsg_code):
             water_mask_rprj = water_mask.astype(int).rio.reproject(f"EPSG:{utm_epsg_code}")
             
         # Export water mask as COG tiff
@@ -389,8 +385,8 @@ def calc_index(files: list,
                              region=region,
                              chunk_size=chunk_size)
 
-        # Reproject if from Landsat
-        if 'HLS.L30' in files[0]:
+        # Reproject if not EPSG conform
+        if fmask.rio.crs is not CRS.from_epsg(utm_epsg_code):
             fmask_rprj = fmask.rio.reproject(f"EPSG:{utm_epsg_code}")
         
         # Export scene's Fmask
@@ -414,7 +410,8 @@ def joblib_hls_preprocessing(files: list,
                              band_index: str,
                              bit_nums: list,
                              out_folder: str,
-                             OVERWRITE_DATA = False):
+                             OVERWRITE_DATA = False,
+                             skip_source = None):
     start_time = time.time()
     
     original_name = os.path.basename(files[0])
@@ -427,7 +424,7 @@ def joblib_hls_preprocessing(files: list,
         
         out_path = os.path.join(out_folder,out_name)
         
-        if 'HLS.S30' in files[0]:
+        if skip_source and skip_source in files[0]:
             print("not reprocessing Sentinel data, only for Landsat..")
             continue
         
@@ -460,6 +457,14 @@ def joblib_hls_preprocessing(files: list,
         if np.nansum(spectral_index.data) == 0.0:
             print(f"File: {files[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
             continue
+
+        # Extract UTM EPSG code for reprojection
+        file_utm_zone = original_name.split(".")[2]
+        utm_epsg_code = 32600 + int(file_utm_zone[1:3])
+
+        # reproject if not epsg conform
+        if spectral_index.rio.crs is not CRS.from_epsg(utm_epsg_code):
+            spectral_index = spectral_index.rio.reproject(f"EPSG:{utm_epsg_code}")
         
         # Export to COG tiffs
         spectral_index.rio.to_raster(raster_path = out_path, 
@@ -505,7 +510,7 @@ if __name__ == "__main__":
     band_index = ["NDVI","NDMI"]
 
     # Overwrite existing tiles?
-    OVERWRITE_DATA = True
+    OVERWRITE_DATA = False
     
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
@@ -536,7 +541,12 @@ if __name__ == "__main__":
         hls_granules_paths = search_files_by_doy_range(hls_granules_paths, START_DATE, END_DATE)
 
     print(f"{len(hls_granules_paths)} granules found to process.")
-
+    
+    with open("matching_HLS_granules.txt", "w") as f:
+        for sublist in hls_granules_paths:
+            if sublist:  # Ensure the sublist is not empty
+                f.write(sublist[0] + "\n")
+            
     # define bits to mask out
     """
     7-6 = aerosols
@@ -562,4 +572,4 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
     
     Parallel(n_jobs=num_workers, backend='loky')(
-        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA) for files in hls_granules_paths)
+        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA,skip_source=None) for files in hls_granules_paths)

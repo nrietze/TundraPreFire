@@ -209,14 +209,13 @@ ndmi_files_l30 <- list.files(HLS_DIR,
 
 ndmi_s30_list <- lapply(paste0(HLS_DIR, ndmi_files_s30),rast)
 
-ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30[1:(length(ndmi_files_s30)-2)]))
+ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30))
 ndmi_s30 <- sapp(ndmi_s30, assign_rast_time)
 
 ndmi_l30_list <- lapply(paste0(HLS_DIR, ndmi_files_l30),rast)
 
 ndmi_l30 <- rast(paste0(HLS_DIR, ndmi_files_l30))
 ndmi_l30 <- sapp(ndmi_l30, assign_rast_time)
-ndmi_l30 <- project(ndmi_l30, crs(ndmi_s30))
 
 ndmi <- c(ndmi_s30, ndmi_l30)
 ndmi
@@ -229,15 +228,15 @@ df_ndmi <- terra::extract(rt, sample_points) %>%
   as_tibble()
 
 summary(df_ndmi)
-
-write.csv2(df_ndmi,paste0(HLS_DIR,"ndvi_sampled.csv"))
+filename <- sprintf("ndvi_sampled_%s_%s.csv",UTM_TILE_ID,year)
+write.csv2(df_ndmi,paste0(HLS_DIR,filename))
 
 # Load data sample
-index_name <- "NDMI"
+index_name <- "NDVI"
 
-df <- read.csv2(sprintf("%s%s_sampled.csv",HLS_DIR,tolower(index_name))) %>% 
+df <- read.csv2(sprintf("%s%s_sampled_%s_%s.csv",HLS_DIR,tolower(index_name),UTM_TILE_ID,year)) %>% 
   select(-1) %>% 
-  mutate(dNBR = dnbr_sample$NBR) %>% 
+  mutate(dNBR = dnbr_sample$dNBR) %>% 
   as_tibble()
 
 df_long <- df %>%
