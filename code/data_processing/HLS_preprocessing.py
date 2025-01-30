@@ -31,7 +31,7 @@ from skimage.filters import threshold_multiotsu
 
 # %% Define user functions
 # Function to gather a list of lists with tiff files
-def get_hls_tif_list(main_dir):
+def get_hls_tif_list(main_dir, utm_tile_id=None):
     hls_granule_tiffs = []
     
     for root, dirs, files in os.walk(main_dir):
@@ -39,7 +39,11 @@ def get_hls_tif_list(main_dir):
         if not dirs:
             tif_files = glob(os.path.join(root, '*.tif'))
             
-            hls_granule_tiffs.append(tif_files)
+            # Only add to list if the current 
+            if utm_tile_id is not None and utm_tile_id in tif_files[0]:
+                hls_granule_tiffs.append(tif_files)
+            else:
+                hls_granule_tiffs.append(tif_files)
 
     return hls_granule_tiffs
 
@@ -525,7 +529,7 @@ if __name__ == "__main__":
     # Set original data paths
     HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/"
 
-    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
+    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH, utm_tile_id=OPTIMAL_TILE_NAME)
 
     if any(pattern in band_index for pattern in ["NBR","GEMI"]):
         # Define time search window
