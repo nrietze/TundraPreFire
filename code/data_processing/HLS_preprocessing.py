@@ -25,6 +25,7 @@ from osgeo import gdal
 import xarray as xr
 from xrspatial import multispectral
 import rioxarray as rxr
+from pyproj import CRS
 
 from skimage.filters import threshold_multiotsu
 
@@ -164,6 +165,7 @@ def calc_index(files: list,
                bit_nums: list,
                out_folder: str,
                region = None):
+    
     # Band name pairs
     if 'HLS.S30' in files[0]:
         hls_band_dict = {
@@ -204,6 +206,12 @@ def calc_index(files: list,
             "SZA": "SZA",
             "SAA": "SAA",
         }
+    
+    tile_name = os.path.basename(files[0])
+    
+    # Extract UTM EPSG code for reprojection
+    file_utm_zone = tile_name.split(".")[2]
+    utm_epsg_code = 32600 + int(file_utm_zone[1:3])
     
     print(f"Calculating: {index_name}")
     
@@ -296,12 +304,15 @@ def calc_index(files: list,
     # change the long_name in the attributes
     spectral_index.attrs['long_name'] = index_name
     spectral_index.attrs['scale_factor'] = SCALE_FACTOR
+    
+    # reproject if Landsat
+    if 'HLS.L30' in files[0]:
+        spectral_index = spectral_index.rio.reproject(f"EPSG:{utm_epsg_code}")
 
     # ---- MASKING ----
     # Compute Water mask
-    tile_name = files[0].split('/')[-1]
     filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask.tif"
-    wm_path = f"{out_folder}{filename}"
+    wm_path = os.path.join(out_folder,filename)
     
     # Check if that tile's water mask exists
     if os.path.exists(wm_path):
@@ -333,10 +344,15 @@ def calc_index(files: list,
         
         ndwi.attrs['long_name'] = "NDWI"
         
+        # Reproject if from Landsat
+        if 'HLS.L30' in files[0]:
+            ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
+                                           chunks=chunk_size)
+            
         # Export NDWI as COG tiff
         ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI.tif"
-        ndwi_path = f"{out_folder}{ndwi_filename}"
-        ndwi.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
+        ndwi_path = os.path.join(out_folder,ndwi_filename)
+        ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
     
         # Apply Otsu's thresholding to NDWI
         hist_ndwi = da.histogram(ndwi, bins=2, range=[-1, 1])
@@ -346,14 +362,16 @@ def calc_index(files: list,
         # Apply threshold to mask out water
         water_mask = ndwi > otsu_thresh
         
+        # Reproject if from Landsat
+        if 'HLS.L30' in files[0]:
+            water_mask_rprj = water_mask.astype(int).rio.reproject(f"EPSG:{utm_epsg_code}")
+            
         # Export water mask as COG tiff
-        water_mask.astype(float).rio.to_raster(
-            raster_path = wm_path, driver = 'COG')
+        water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
     
     # Fmask
-    tile_name = files[0].split('/')[-1]
     filename = f"{tile_name.split('v2.0')[0]}v2.0_Fmask.tif"
-    fmask_path = f"{out_folder}{filename}"
+    fmask_path = os.path.join(out_folder,filename)
     
     # Check if that tile's Fmask tiff exists
     if os.path.exists(fmask_path):
@@ -370,14 +388,18 @@ def calc_index(files: list,
                              region=region,
                              chunk_size=chunk_size)
 
+        # Reproject if from Landsat
+        if 'HLS.L30' in files[0]:
+            fmask_rprj = fmask.rio.reproject(f"EPSG:{utm_epsg_code}")
+        
         # Export scene's Fmask
-        fmask.rio.to_raster(raster_path = fmask_path, driver = 'COG')
+        fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
     
     # Convert Fmask to quality mask
     mask_layer = create_quality_mask(fmask.data, bit_nums)
     
     # Apply mask and filter spectral_index image
-    merged_mask = np.logical_or(mask_layer,water_mask.data.astype(bool))
+    merged_mask = np.logical_or(mask_layer,water_mask.data)
     spectral_index_qf = spectral_index.where(~merged_mask)
     
     # exclude the inf values
@@ -435,7 +457,8 @@ def joblib_hls_preprocessing(files: list,
             continue
         
         # Export to COG tiffs
-        spectral_index.rio.to_raster(raster_path = out_path, driver = 'COG')
+        spectral_index.rio.to_raster(raster_path = out_path, 
+                                     driver = 'COG')
     
     print("--- %s seconds ---" % (time.time() - start_time))
 
@@ -527,9 +550,15 @@ if __name__ == "__main__":
 
     # output directory
     OUT_FOLDER = '/data/nrietz/raster/hls/'
-    N_CORES = -1 # -1 = all are used, -2 all but one
+    
+    num_workers = (
+        int(os.environ.get("SLURM_CPUS_PER_TASK"))
+        if os.environ.get("SLURM_CPUS_PER_TASK")
+        else os.cpu_count()
+    )
+    # num_workers = -1 # -1 = all are used, -2 all but one
 
     multiprocessing.set_start_method('spawn')
     
-    Parallel(n_jobs=N_CORES, backend='loky')(
+    Parallel(n_jobs=num_workers, backend='loky')(
         delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA) for files in hls_granules_paths)
