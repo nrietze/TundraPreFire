@@ -5,7 +5,7 @@ import geopandas as gpd
 import pandas as pd
 import datetime
 import numpy as np
-
+from tqdm import tqdm
 from osgeo import gdal
 import xarray as xr
 import rioxarray as rxr
@@ -38,7 +38,8 @@ def spatial_join_multiple_files(random_points: gpd.GeoDataFrame,
     
     result_list = []
 
-    for filepath in df_viirs_filtered['filepath']:
+    print("Performing spatial join of sample points and sub-daily perimeters.")
+    for filepath in tqdm(df_viirs_filtered['filepath']):
         # Read sub-daily perimeter file
         sd_perimeters = gpd.read_file(filepath)
         
@@ -86,7 +87,7 @@ else:
 TEST_ID = 14211 # fire ID for part of the large fire scar
 
 # Load the random points file for the currently selected fire sacr
-random_points = gpd.read_file("../data/feature_layers/random_points.shp")
+random_points = gpd.read_file("../data/feature_layers/sample_points.gpkg")
 
 # %%
 # Load list of sub-daily perimeters and assign datetime
@@ -124,3 +125,6 @@ random_points_sjoin = spatial_join_multiple_files(
     random_points,
     df_viirs_filtered,
     TEST_ID)
+
+# export data
+random_points_sjoin.to_file("../data/feature_layers/sample_points_burn_date.gpkg")

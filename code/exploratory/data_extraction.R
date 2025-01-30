@@ -1,8 +1,9 @@
 library(terra)
 library(sf)
+library(spatstat)
 library(tidyterra)
 library(rts)
-
+library(spdep)
 library(gt)
 library(tidyverse)
 library(cowplot)
@@ -12,128 +13,39 @@ print(getwd())
 
 set.seed(10)
 
-## Loading and preparing data:
-dnbr <- rast(
-  "~/data/raster/hls/dNBR/2020_dNBR.tif"
-) * 1000
-
-# Load features (fire perimeters and ROIs)
-fire_perimeters_2020 <- vect(
-  "~/data/feature_layers/fire_atlas/final_viirs2020.gpkg"
-)
-roi <- vect("~/data/feature_layers/roi.geojson")
-
-fire_within_roi <- terra::intersect(fire_perimeters_2020, roi)
-
-
-## Dissolve fire perimeters that lie in the ROI to one
-fire_union_roi <- terra::aggregate(fire_within_roi) %>%
-  project(crs(dnbr))
-
-fire_perimeter_buffered <- buffer(fire_union_roi, 1200)
-
-plot(fire_union_roi)
-plot(fire_perimeter_buffered,add = TRUE)
-
-binwidth <- 20
-
-dnbr_in_perimeter <- mask(dnbr, fire_perimeter_buffered, updatevalue = NA)
-
-p1 <- ggplot() +
-  geom_spatraster(data = dnbr_in_perimeter) +
-  scale_fill_viridis_c(option = "inferno",
-                       na.value = "white",
-                       name = "dNBR") +
-  theme_cowplot()
-
-p2 <- ggplot(data = dnbr_in_perimeter, aes(x = NBR)) +
-  geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
-  xlim(c(-500,1000)) +
-  labs(
-    title = "Histogram of dNBR",
-    x = "dNBR Values",
-    y = "Frequency"
-  ) +
-  theme_cowplot()
-
-p1 + p2
-
-# ggsave2("figures/expl_dNBR_hist.png",bg = "white")
-
-## Extract pixels within fire perimeter
-# Set dNBR bin size for sampling (dNBR * 1000)
-binwidth <- 20
-
-# get bins for the raster
-bins <- seq(minmax(dnbr_in_perimeter)[1],minmax(dnbr_in_perimeter)[2],binwidth)
-
-# Set proportion of sampled values per bin
-nsample <- 1e4
-
-# Create binned raster for sampling
-rast_binned <- classify(dnbr_in_perimeter,
-                        bins, 
-                        include.lowest=TRUE,
-                        brackets=TRUE)
-
-
-# Sample n pixels and mask with burn perimeter
-random_points <- spatSample(rast_binned, nsample, 
-                            # method = "stratified",
-                            method = "random",
-                            values = FALSE,
-                            as.points = TRUE) %>% 
-  mask(fire_perimeter_buffered) 
-
-# Export points as gpkg
-writeVector(random_points, filename = "~/data/feature_layers/random_points.shp")
-random_points <- vect("~/data/feature_layers/random_points.shp")
-
-# Extract data at random points 
-dnbr_sample <- terra::extract(dnbr, random_points,
-                              ID = FALSE, xy = FALSE) 
-
-p3 <- ggplot(data = dnbr_sample, aes(x = NBR)) +
-  geom_histogram(binwidth = binwidth, color = "black", fill = "orange") +
-  xlim(c(-500,1000)) +
-  labs(
-    title = "Histogram of dNBR (sampled)",
-    x = "dNBR Values",
-    y = "Frequency"
-  ) +
-  theme_cowplot()
-
-p2 / p3 
-# ggsave2("figures/expl_dNBR_hist_vs_sampled.png",bg = "white")
-
-# Export dataframe to csv
-# write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
-
-## Check spatial autocorrelation of Random points:
-library(spdep)
-
-knn <- knn2nb(knearneigh(dnbr_sample[c("x","y")], k = 5))
-
-# Convert neighbors to weights
-weights <- nb2listw(knn, style = "W")
-
-# Compute Moran's I
-moran_i <- moran.test(dnbr_sample$NBR, listw = weights)
-
-ggplot() +
-  geom_spatraster(data = dnbr_in_perimeter) +
-  scale_fill_viridis_c(option = "inferno",
-                       na.value = "white",
-                       name = "dNBR") +
-  geom_spatvector(data = random_points) +
-  labs(title = sprintf("Randomly samlped points\nMoran's I: %.2f (p-value: %.4f)", 
-                       moran_i$estimate[1],moran_i$p.value)) +                   
-  theme_cowplot()
-
-# ggsave2("figures/stratified_random_points_moranI.png",bg = "white")
-
-## Stack NDMI rasters
-HLS_DIR <- "~/data/raster/hls/"
+# 0. Configure functions ----
+sample_dnbr_points <- function(raster, sample_pct = 0.10) {
+  # Frequency table for raster bins
+  freq_table <- freq(raster, digits = 0)
+  
+  # Calculate the number of points per bin
+  sample_size_per_bin <- ceiling(sample_pct * freq_table[, "count"])
+  
+  # Initialize empty SpatVector for sampled points
+  sample_points <- vect()
+  
+  # Efficient sampling using vectorized approach
+  for (i in seq_len(nrow(freq_table))) {
+    category_value <- freq_table[i, "value"]
+    
+    # Skip if no points to sample
+    if (sample_size_per_bin[i] == 0) next
+    
+    # Mask for the current category
+    category_mask <- raster == category_value
+    
+    # Sample random points
+    points <- spatSample(category_mask, size = sample_size_per_bin[i],
+                         method = "random", na.rm = TRUE, as.points = TRUE)
+    
+    # Append sampled points if valid
+    if (!is.null(points)) {
+      sample_points <- rbind(sample_points, points)
+    }
+  }
+  
+  return(sample_points)
+}
 
 assign_rast_time <- function(lyr) {
   # Extract the layer's timestamp
@@ -151,6 +63,141 @@ assign_rast_time <- function(lyr) {
   
   return(lyr)
 }
+
+
+# 1. Loading and preparing data: ----
+UTM_TILE_ID <- "54WXE"
+year <- 2020
+severity_index <- "dNBR"
+
+dnbr <- rast(
+  sprintf("~/data/raster/hls/severity_rasters/%s_%s_%s.tif",
+          UTM_TILE_ID, year,severity_index)) * 1000
+
+# Load features (fire perimeters and ROIs)
+fire_perimeters <- vect(
+  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+)
+TEST_ID <- 14211 # fire ID for part of the large fire scar
+
+selected_fire_perimeter <- fire_perimeters %>% 
+  filter(fireid  == TEST_ID) %>%
+  project(crs(dnbr))
+
+# Buffer the selected fire perimeter
+fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
+
+plot(selected_fire_perimeter)
+plot(fire_perimeter_buffered,add = TRUE)
+
+binwidth <- 20
+
+dnbr_in_perimeter <- dnbr %>% 
+  mask(fire_perimeter_buffered, updatevalue = NA) %>% 
+  crop(fire_perimeter_buffered)
+
+p1 <- ggplot() +
+  geom_spatraster(data = dnbr_in_perimeter) +
+  scale_fill_viridis_c(option = "inferno",
+                       na.value = "white",
+                       name = "dNBR") +
+  theme_cowplot()
+
+p2 <- ggplot(data = dnbr_in_perimeter, aes(x = dNBR)) +
+  geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
+  xlim(c(-500,1000)) +
+  labs(
+    title = "Histogram of dNBR",
+    x = "dNBR Values",
+    y = "Frequency"
+  ) +
+  theme_cowplot()
+
+pg <- p1 + p2
+
+ggsave2(pg,filename = "figures/expl_dNBR_hist.png",width = 8,height = 6,bg = "white")
+
+# 2. Execute spatial sampling ----
+# Set dNBR bin size for sampling (dNBR * 1000)
+binwidth <- 20
+
+# get bins for the raster
+bins <- seq(minmax(dnbr_in_perimeter)[1],minmax(dnbr_in_perimeter)[2],binwidth)
+
+# Set proportion of sampled values per bin
+nsample <- 1e4
+
+# Create binned raster for sampling
+rast_binned <- classify(dnbr_in_perimeter,
+                        bins, 
+                        include.lowest=TRUE,
+                        brackets=TRUE)
+
+# calculate number of pixels to sample in each bin (now 10% of available pixels)
+frac_to_sample <- 0.01
+
+# Create spatial point sample
+sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
+
+# Convert to sf
+sample_points_sf <- st_as_sf(sample_points)
+
+# Export points as gpkg
+st_write(sample_points_sf, "~/data/feature_layers/sample_points.gpkg",
+         layer = "sample_points", delete_layer = TRUE)
+
+# 3. Run burn date assignment in python ----
+
+# 4. Extract data ----
+
+sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
+  project(crs(dnbr))
+
+# Extract data at random points 
+dnbr_sample <- terra::extract(dnbr, sample_points,
+                              ID = FALSE, xy = TRUE) 
+
+# Plot distribution of total raster vs. sample points
+p3 <- ggplot(data = dnbr_sample, aes(x = dNBR)) +
+  geom_histogram(binwidth = binwidth, color = "black", fill = "orange") +
+  xlim(c(-500,1000)) +
+  labs(
+    title = "Histogram of dNBR (sampled)",
+    x = "dNBR Values",
+    y = "Frequency"
+  ) +
+  theme_cowplot()
+
+pg <- p2 / p3 
+ggsave2(pg, filename = "figures/expl_dNBR_hist_vs_sampled.png",
+        width = 8, height = 6,bg = "white")
+
+# Export dataframe to csv
+# write.csv(dnbr_sample, file = "data/tables/dnbr_sample_test_roi.csv")
+
+# 5. Check spatial autocorrelation of Random points ----
+knn <- knn2nb(knearneigh(dnbr_sample[c("x","y")], k = 5))
+
+# Convert neighbors to weights
+weights <- nb2listw(knn, style = "W")
+
+# Compute Moran's I
+moran_i <- moran.test(dnbr_sample$dNBR, listw = weights)
+
+ggplot() +
+  geom_spatraster(data = dnbr_in_perimeter) +
+  scale_fill_viridis_c(option = "inferno",
+                       na.value = "white",
+                       name = "dNBR") +
+  geom_spatvector(data = sample_points) +
+  labs(title = sprintf("Randomly samlped points\nMoran's I: %.2f (p-value: %.4f)", 
+                       moran_i$estimate[1],moran_i$p.value)) +                   
+  theme_cowplot()
+
+# ggsave2("figures/stratified_sample_points_moranI.png",bg = "white")
+
+## Stack NDMI rasters
+HLS_DIR <- "~/data/raster/hls/"
 
 # List NDMI COGs
 ndmi_files_s30 <- list.files(HLS_DIR,
@@ -177,7 +224,7 @@ ndmi
 # create raster time series object
 rt <- rts(ndmi, time(ndmi))
 
-df_ndmi <- terra::extract(rt, random_points) %>%
+df_ndmi <- terra::extract(rt, sample_points) %>%
   t() %>%
   as_tibble()
 
@@ -285,5 +332,4 @@ ggplot(df_filtered) +
   geom_point(aes(x = DailyMean,y = dNBR),alpha = .2) +
   labs(x = sprintf("Daily mean %s\n (per point location)",index_name),
        y = "dNBR") +
- ¨¨ theme_cowplot()
-ä
+ theme_cowplot()

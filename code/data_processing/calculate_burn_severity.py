@@ -209,8 +209,8 @@ def calculate_severity_index(PROCESSED_HLS_DIR:str,
 
     # create image stack of post-fire NBR
     index_ts = xr.concat([rxr.open_rasterio(f, mask_and_scale=True,
-                                          chunks=chunk_size
-                                          ).squeeze('band',drop=True) for f in index_files], dim=time)
+                                            chunks=chunk_size
+                                            ).squeeze('band',drop=True) for f in index_files], dim=time)
     index_ts.name = search_index_name
 
     index_prefire_composite = index_ts.sel(time = "2019-09-13").max(dim = "time")
@@ -265,7 +265,7 @@ else:
 HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/"
 PROCESSED_HLS_DIR = '/home/nrietz/data/raster/hls/'
 
-TEST_ID = 14211 # fire ID for part of the large fire scar
+    TEST_ID = 14211 # fire ID for part of the large fire scar
 
 # %% 2. Find HLS imagery pre- and post-fire
 
