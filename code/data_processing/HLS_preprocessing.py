@@ -31,7 +31,7 @@ from skimage.filters import threshold_multiotsu
 
 # %% Define user functions
 # Function to gather a list of lists with tiff files
-def get_hls_tif_list(main_dir, utm_tile_id=None):
+def get_hls_tif_list(main_dir):
     hls_granule_tiffs = []
     
     for root, dirs, files in os.walk(main_dir):
@@ -39,11 +39,7 @@ def get_hls_tif_list(main_dir, utm_tile_id=None):
         if not dirs:
             tif_files = glob(os.path.join(root, '*.tif'))
             
-            # Only add to list if the current 
-            if utm_tile_id is not None and utm_tile_id in tif_files[0]:
-                hls_granule_tiffs.append(tif_files)
-            else:
-                hls_granule_tiffs.append(tif_files)
+            hls_granule_tiffs.append(tif_files)
 
     return hls_granule_tiffs
 
@@ -505,18 +501,6 @@ if __name__ == "__main__":
             146.16765743760948, 71.6168891179392)
     print("AOI loaded.")
 
-    # Load MGRS tile centroids to find msot suitable HLS tile
-    # mgrs_tile_centroids = gp.read_file("data/feature_layers/MGRS_centroids.geojson")
-
-    # Find best UTM tile for the feature by identifying closest tile centroid to feature centroid
-    # sindex = mgrs_tile_centroids.geometry.sindex.nearest(aois.geometry.centroid)
-
-    # # Query tile in all MGRS tiles
-    # nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:]
-
-    # OPTIMAL_TILE_NAME = nearest_mgrs_tile_centroid.Name.item()
-    OPTIMAL_TILE_NAME = "54WXE"
-
     # Define bands/indices to process
     band_index = ["NDVI","NDMI"]
 
@@ -529,8 +513,16 @@ if __name__ == "__main__":
     # Set original data paths
     HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/"
 
-    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH, utm_tile_id=OPTIMAL_TILE_NAME)
+    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
 
+    # Filter HLS file list for granules in the selected UTM tile
+    OPTIMAL_TILE_NAME = "54WXE"
+    
+    if OPTIMAL_TILE_NAME:
+        hls_granules_paths = [
+            sublist for sublist in hls_granules_paths if OPTIMAL_TILE_NAME in sublist[0]
+            ]
+        
     if any(pattern in band_index for pattern in ["NBR","GEMI"]):
         # Define time search window
         # START_DATE = "2020-05-01T00:00:00" # full growing season
