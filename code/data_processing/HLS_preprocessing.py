@@ -518,11 +518,9 @@ if __name__ == "__main__":
     # Filter HLS file list for granules in the selected UTM tile
     OPTIMAL_TILE_NAME = "54WXE"
     
-    print(f"{len(hls_granules_paths)} granules found to process.")
-    
     if OPTIMAL_TILE_NAME:
         hls_granules_paths = [
-            sublist for sublist in hls_granules_paths if OPTIMAL_TILE_NAME in sublist[0]
+            sublist for sublist in hls_granules_paths if sublist and OPTIMAL_TILE_NAME in sublist[0]
             ]
         
     if any(pattern in band_index for pattern in ["NBR","GEMI"]):
