@@ -509,7 +509,7 @@ if __name__ == "__main__":
     OPTIMAL_TILE_NAME = "54WXE"
 
     # Define bands/indices to process
-    band_index = ["GEMI","NBR"]
+    band_index = ["NDVI","NDMI"]
 
     # Overwrite existing tiles?
     OVERWRITE_DATA = True
