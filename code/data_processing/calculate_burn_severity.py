@@ -185,6 +185,70 @@ def time_index_from_filenames(files):
     '''
     return [datetime.datetime.strptime(f.split('.')[-4], '%Y%jT%H%M%S') for f in files]
 
+def calculate_severity_index(PROCESSED_HLS_DIR:str, 
+                             utm_tileid:str,
+                             index_name:str,
+                             OUT_DIR = None):
+    
+    search_index_name = "NBR" if "NBR" in index_name else "GEMI" if "GEMI" in index_name else index_name
+    
+    index_files = [
+        os.path.abspath(os.path.join(PROCESSED_HLS_DIR,o))
+        # list dir is not recursive, so dNBR subfolder will not be searched :)
+        for o in os.listdir(PROCESSED_HLS_DIR)
+        # find files that are in the tile and are NBR
+        if o.endswith(f'{search_index_name}.tif') and utm_tileid in o
+    ]
+
+    print(f"There are {len(index_files)} {search_index_name} files for this feature.")
+
+    time = xr.Variable('time', time_index_from_filenames(index_files))
+
+    # define chunk size for data loading
+    chunk_size = dict(band=1, x=3600, y=3600)
+
+    # create image stack of post-fire NBR
+    index_ts = xr.concat([rxr.open_rasterio(f, mask_and_scale=True,
+                                          chunks=chunk_size
+                                          ).squeeze('band',drop=True) for f in index_files], dim=time)
+    index_ts.name = search_index_name
+
+    index_prefire_composite = index_ts.sel(time = "2019-09-13").max(dim = "time")
+    index_postfire_composite = index_ts.sel(time = "2020-09-10").max(dim = "time")
+
+    if index_name == "dNBR" or index_name == "dGEMI":
+        # calculate dNBR (pre - post fire)
+        final_index = index_prefire_composite - index_postfire_composite
+        
+    elif index_name == "RdNBR":
+        # calculate RdNBR (pre - post fire)
+        dnbr = index_prefire_composite - index_postfire_composite
+        final_index = dnbr / np.sqrt(abs(index_prefire_composite))
+        
+    elif index_name == "RBR":
+        # calculate relativized burn ratio (pre - post fire)
+        dnbr = index_prefire_composite - index_postfire_composite
+        final_index = dnbr / (index_prefire_composite + 1.001)
+
+    # exclude the inf values
+    final_index = xr.where(final_index != np.inf, 
+                           final_index, np.nan, 
+                           keep_attrs=True)
+
+    # change the long_name in the attributes
+    final_index.attrs['long_name'] = index_name
+    
+    if not OUT_DIR is None:
+        year = index_ts.time.max().values.astype('datetime64[Y]').astype(int) + 1970
+        out_name = os.path.join(OUT_DIR,
+                                "severity_rasters",
+                                f"{utm_tileid}_{year}_{index_name}.tif")
+
+        # Open newly created GeoTIFF, add tiling, compression, and export as COG
+        final_index.rio.to_raster(raster_path = out_name, driver = 'COG')
+        
+    return final_index
+
 # %% 1. Load data
 PATH_VIIRS_PERIMETERS = "../data/feature_layers/fire_atlas/"
 
@@ -235,7 +299,7 @@ MAX_CLOUD_COVERAGE = 80
 
 print(f"Filtering out HLS granules with more than {MAX_CLOUD_COVERAGE} % cloud cover\
      \n and less than {MIN_TILE_COVERAGE} % tile coverage.")
-
+"""
 filtered_hls_granules = filter_granules(hls_granules_paths,
                                         polygon = perimeter,
                                         hls_processed_path=PROCESSED_HLS_DIR,
@@ -268,23 +332,9 @@ Parallel(n_jobs=N_CORES, backend='loky')(
                                             bit_nums,
                                             OUT_FOLDER,OVERWRITE_DATA) for files in granules_without_nbr)
 print("NBR and GEMI processing complete.")
-
-# %% 4. Stack NBR imagery
-# List NBR COGs
-nbr_files = [
-    os.path.abspath(os.path.join(PROCESSED_HLS_DIR, o)) 
-    for o in os.listdir(PROCESSED_HLS_DIR)  # list dir is not recursive, so dNBR subfolder will not be searched :)
-    if o.endswith('NBR.tif') and utm_tileid in o # find files that are in the tile and are NBR
-    ]
-
-print(f"There are {len(nbr_files)} NBR files for this feature.")
-
-time = xr.Variable('time', time_index_from_filenames(nbr_files))
-
-# define chunk size for data loading
-chunk_size = dict(band=1, x=3600, y=3600)
-
-# create image stack of post-fire NBR
-nbr_ts = xr.concat([rxr.open_rasterio(f, mask_and_scale=True, 
-                                      chunks=chunk_size).squeeze('band', drop=True) for f in nbr_files], dim=time)
-nbr_ts.name = 'NBR'
+"""
+# %% 3. Calculate burn severity index
+severity_index = calculate_severity_index(PROCESSED_HLS_DIR,
+                                          utm_tileid,
+                                          index_name = "dNBR",
+                                          OUT_DIR = PROCESSED_HLS_DIR)

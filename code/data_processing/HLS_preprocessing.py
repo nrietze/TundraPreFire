@@ -381,8 +381,8 @@ def calc_index(files: list,
     spectral_index_qf = spectral_index.where(~merged_mask)
     
     # exclude the inf values
-    spectral_index_qf = xr.where(spectral_index_qf != np.inf, 
-                                 spectral_index_qf, np.nan, 
+    spectral_index_qf = xr.where(spectral_index_qf != np.inf,
+                                 spectral_index_qf, np.nan,
                                  keep_attrs=True)
     
     return spectral_index_qf
@@ -486,10 +486,10 @@ if __name__ == "__main__":
     OPTIMAL_TILE_NAME = "54WXE"
 
     # Define bands/indices to process
-    band_index = ["GEMI"]
+    band_index = ["GEMI","NBR"]
 
     # Overwrite existing tiles?
-    OVERWRITE_DATA = False
+    OVERWRITE_DATA = True
     
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
@@ -502,12 +502,12 @@ if __name__ == "__main__":
     if any(pattern in band_index for pattern in ["NBR","GEMI"]):
         # Define time search window
         # START_DATE = "2020-05-01T00:00:00" # full growing season
-        # START_DATE = "2020-09-10T00:00:00"
-        START_DATE = "2019-09-12T00:00:00"
+        START_DATE = "2020-09-10T00:00:00"
+        # START_DATE = "2019-09-12T00:00:00"
 
         # END_DATE = "2020-10-15T23:59:59" # full growing season
-        # END_DATE = "2020-09-12T23:59:59"
-        END_DATE = "2019-09-13T23:59:59"
+        END_DATE = "2020-09-12T23:59:59"
+        # END_DATE = "2019-09-13T23:59:59"
 
         hls_granules_paths = search_files_by_doy_range(hls_granules_paths, START_DATE, END_DATE)
 
