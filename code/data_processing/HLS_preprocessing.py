@@ -346,8 +346,9 @@ def calc_index(files: list,
         
         # Reproject if from Landsat
         if 'HLS.L30' in files[0]:
-            ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
-                                           chunks=chunk_size)
+            with np.errstate(divide='ignore'): 
+                ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
+                                            chunks=chunk_size)
             
         # Export NDWI as COG tiff
         ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI.tif"
@@ -425,6 +426,10 @@ def joblib_hls_preprocessing(files: list,
         out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}.tif"
         
         out_path = f'{out_folder}{out_name}'
+        
+        if 'HLS.S30' in files[0]:
+            print("not reprocessing Sentinel data, only for Landsat..")
+            continue
         
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
         if os.path.exists(out_path):
