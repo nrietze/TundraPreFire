@@ -417,7 +417,7 @@ def joblib_hls_preprocessing(files: list,
                              OVERWRITE_DATA = False):
     start_time = time.time()
     
-    original_name = files[0].split('/')[-1]
+    original_name = os.path.basename(files[0])
 
     print(f"Processing: {original_name.split('v2.0')[0]}", end = "\n")
     
@@ -425,7 +425,7 @@ def joblib_hls_preprocessing(files: list,
         # Generate output name from the original filename
         out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}.tif"
         
-        out_path = f'{out_folder}{out_name}'
+        out_path = os.path.join(out_folder,out_name)
         
         if 'HLS.S30' in files[0]:
             print("not reprocessing Sentinel data, only for Landsat..")
@@ -517,6 +517,8 @@ if __name__ == "__main__":
 
     # Filter HLS file list for granules in the selected UTM tile
     OPTIMAL_TILE_NAME = "54WXE"
+    
+    print(f"{len(hls_granules_paths)} granules found to process.")
     
     if OPTIMAL_TILE_NAME:
         hls_granules_paths = [
