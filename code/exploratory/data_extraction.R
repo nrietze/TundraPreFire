@@ -229,7 +229,7 @@ ggplot() +
 
 # 6. Stack spectral_index rasters ----
 HLS_DIR <- "~/data/raster/hls/"
-index_name = "NDVI"
+index_name = "NDMI"
 
 image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
 
@@ -369,7 +369,7 @@ df_filtered %>%
     theme_cowplot()
 
 ggsave2(sprintf("figures/%s_perpoint.png",index_name),
-            bg = "white",width = 16, height = 16)
+            bg = "white",width = 8, height = 8)
     
 # Histogram of index values
 ggplot(df_filtered) +
