@@ -127,12 +127,11 @@ random_points_sjoin = spatial_join_multiple_files(
     TEST_ID)
 
 # Create start DOY column
-random_points_sjoin['tst_date'] = pd.to_datetime(
-    random_points_sjoin[['tst_year', 'tst_month', 'tst_day']].
-    rename(columns={'tst_year': 'year', 
-                    'tst_month': 'month', 
-                    'tst_day': 'day'}))
-random_points_sjoin['tst_doy'] = random_points_sjoin['tst_date'].dt.dayofyear
-
+random_points_sjoin['burn_date'] = pd.to_datetime(
+    random_points_sjoin[['ted_year', 'ted_month', 'ted_day']].
+    rename(columns={'ted_year': 'year', 
+                    'ted_month': 'month', 
+                    'ted_day': 'day'}))
+random_points_sjoin['burn_doy'] = random_points_sjoin['burn_date'].dt.dayofyear
 # export data
 random_points_sjoin.to_file("../data/feature_layers/sample_points_burn_date.gpkg")
