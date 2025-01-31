@@ -229,7 +229,7 @@ ggplot() +
 
 # 6. Stack spectral_index rasters ----
 HLS_DIR <- "~/data/raster/hls/"
-index_name = "NDMI"
+index_name = "NDVI"
 
 image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
 
@@ -312,8 +312,8 @@ ggsave2(p,
         bg = "white",width = 10, height = 8)
 
 # Load filtered and formatted dataframe
-# df_filtered - read.csv2(sprintf("data/tables/%s_filtered_%sth_pctile.png",
-#                                 index_name,pct_cutoff*100))
+df_filtered <- read.csv2(sprintf("data/tables/%s_filtered_%sth_pctile.csv",
+                                index_name,pct_cutoff*100))
 
 # Filter out observations with fewer than X observations
 
