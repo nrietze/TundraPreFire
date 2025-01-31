@@ -8,7 +8,7 @@ library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
-
+library(lubridate)
 print(getwd())
 
 set.seed(10)
@@ -181,7 +181,8 @@ st_write(sample_points_sf, "~/data/feature_layers/sample_points.gpkg",
 # 4. Extract data ----
 
 sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
-  project(crs(dnbr))
+  project(crs(dnbr)) %>% 
+  mutate(ObservationID = 1:nrow(sample_points))
 
 # Extract data at random points 
 dnbr_sample <- terra::extract(dnbr, sample_points,
@@ -248,9 +249,12 @@ df <- read.csv2(paste0(HLS_DIR,filename)) %>%
   mutate(dNBR = dnbr_sample$dNBR) %>% 
   as_tibble()
 
+df$burn_date <- sample_points$burn_date
+
 df_long <- df %>%
   mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-  gather(key = "Time", value = index_name, -c(ObservationID,dNBR)) %>% 
+  gather(key = "Time", value = index_name, 
+         -c(ObservationID,dNBR,burn_date)) %>% 
   mutate(Time = as.POSIXct(Time, format = "X%Y.%m.%d.%H.%M.%S")) 
 
 df_nobs <- df_long %>% 
@@ -258,39 +262,90 @@ df_nobs <- df_long %>%
   group_by(ObservationID) %>% 
   summarize(valid_count = sum(!is.na(index_name)))
 
-thr_nobs <- quantile(df_nobs$valid_count, 0.75, na.rm = TRUE)
+# Compute daily means
+df_daily_spectral_index <- df_long %>% 
+  group_by(Time, ObservationID) %>% 
+  summarise(DailyMean = mean(index_name, na.rm = TRUE),
+            dNBR = first(dNBR),
+            burn_date = first(burn_date))
+
+pct_cutoff <- 0.5
+thr_nobs <- quantile(df_nobs$valid_count,pct_cutoff , na.rm = TRUE)
 
 ggplot(df_nobs) +
   geom_histogram(aes(x = valid_count)) +
   geom_vline(aes(xintercept = thr_nobs),
              color = "red", linetype = "dashed", size = 1) + 
   geom_text(aes(x = thr_nobs-10, y = 300), 
-                label = paste("75%-ile = ", round(thr_nobs, 2)), 
+                label = sprintf("%sth percentile = %s",
+                                pct_cutoff*100, round(thr_nobs, 2)),
             color = "red", vjust = -1) +
   labs(title = "Number of non-NA observations",
-       subtitle = "Thresholds of valid data (75% percentile)") +
+       subtitle = sprintf("Thresholds of valid data (%sth percentile)",
+                          pct_cutoff*100)) +
   theme_cowplot()
 
-ggsave2(sprintf("figures/Histogram_%s_observations.png",index_name),
+ggsave2(sprintf("figures/Histogram_%s_observations_%sth_pctile.png",
+                index_name,pct_cutoff*100),
         bg = "white",width = 10, height = 8)
-
-# Compute daily means
-df_daily_spectral_index <- df_long %>% 
-  group_by(Time, ObservationID) %>% 
-  summarise(DailyMean = mean(index_name, na.rm = TRUE),
-            dNBR = first(dNBR))
 
 # get nr. of valid observations
 valid_counts_by_id <- df_daily_spectral_index %>%
   group_by(ObservationID) %>%
   summarise(valid_count = sum(!is.na(DailyMean)))
 
+# Plot where number of observations per points
+sample_points_filtered <- sample_points %>% 
+  merge(valid_counts_by_id, by = "ObservationID")
+
+(p <- ggplot() +
+    # geom_spatraster(data = dnbr_in_perimeter, aes(fill = dNBR)) +
+    geom_spatvector(data = sample_points_filtered, aes(color = valid_count)) +
+    scale_color_viridis_c(option = "magma",
+                         na.value = "transparent") +
+    labs(fill = "Number of non-masked observations") +
+    theme_cowplot()
+)
+
+ggsave2(p, 
+        filename = "figures/Nobs_randompoints_map.png",
+        bg = "white",width = 10, height = 8)
+
+# Load filtered and formatted dataframe
+# df_filtered - read.csv2(sprintf("data/tables/%s_filtered_%sth_pctile.png",
+#                                 index_name,pct_cutoff*100))
+
 # Filter out observations with fewer than X observations
+
 df_filtered <- df_daily_spectral_index %>%
   inner_join(valid_counts_by_id, by = "ObservationID") %>%
   filter(valid_count >= thr_nobs,
          format(Time, "%Y") == "2020") %>% 
   select(-valid_count)  
+
+# Plot where these filtered points sit
+sample_points_filtered <- sample_points %>% 
+  filter(ObservationID %in% df_filtered$ObservationID)
+
+(p <- ggplot() +
+  geom_spatraster(data = dnbr_in_perimeter, aes(fill = dNBR)) +
+  geom_spatvector(data = sample_points_filtered) +
+  scale_fill_viridis_c(option = "magma",
+                       na.value = "transparent") +
+  labs(fill = "dNBR") +
+  theme_cowplot()
+)
+ggsave2(p, 
+        filename = sprintf("figures/Location_randompoints_%sth_pctile.png",pct_cutoff*100),
+        bg = "white",width = 10, height = 8)
+
+# Flag pre- & post-fire observations
+df_filtered <- df_filtered %>% 
+  mutate(
+  Time = ymd_hms(Time),
+  burn_date = ymd_hms(burn_date),
+  BeforeBurnDate = Time < burn_date
+)
 
 # Time series for all points
 ggplot(df_filtered) +
@@ -307,8 +362,9 @@ rand_id <- sample(unique(df_filtered$ObservationID), 64)
 df_filtered %>% 
   filter(ObservationID %in% rand_id) %>% 
   ggplot() +
-    geom_point(aes(x = Time,y = DailyMean),alpha = .2) +
+    geom_point(aes(x = Time,y = DailyMean, color = BeforeBurnDate),alpha = .2) +
     labs(y = sprintf("Daily mean %s\n (per point location)",index_name)) +
+    geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
     facet_wrap(~ObservationID) +
     theme_cowplot()
 
@@ -336,3 +392,68 @@ ggplot(df_filtered) +
   labs(x = sprintf("Daily mean %s\n (per point location)",index_name),
        y = "dNBR") +
  theme_cowplot()
+
+# Write filtered data frame to CSV
+write.csv2(df_filtered,
+           sprintf("data/tables/%s_filtered_%sth_pctile.csv",
+                  index_name,pct_cutoff*100))
+
+# 7. Run pre-fire linear models ----
+df_mod <- df_filtered %>%
+  group_by(ObservationID) %>% 
+  filter(BeforeBurnDate) %>% 
+  do(mod = lm(DailyMean ~ Time, data = .)) %>%
+  mutate(Slope = summary(mod)$coeff[2],
+         Intercept = summary(mod)$coeff[1]) %>%
+  select(-mod)
+
+df_mod <- df_filtered %>%
+  group_by(ObservationID) %>%
+  select(dNBR) %>% 
+  summarize(dNBR = first(dNBR)) %>% 
+  select(-ObservationID) %>% 
+  cbind(df_mod)
+    
+# Plot slope of index vs. dNBR
+ggplot(df_mod) +
+  geom_point(aes(x = Slope,y = dNBR),alpha = .2) +
+  labs(x = sprintf("Slope of pre-fire %s",index_name),
+       y = "dNBR") +
+  theme_cowplot()
+
+ggsave2(sprintf("figures/%s_vs_dNBR.png",index_name),
+        bg = "white",width = 10, height = 8)
+
+sample_points_merged <- sample_points %>% 
+  filter(ObservationID %in% df_mod$ObservationID) %>% 
+  merge(., df_mod, by = "ObservationID") 
+
+(p <- ggplot() +
+    geom_spatraster(data = dnbr_in_perimeter,aes(fill = dNBR)) +
+    geom_spatvector(data = sample_points_merged, aes(color = Slope)) +
+    scale_fill_viridis_c(option = "magma",
+                         na.value = "transparent") +
+    scale_color_viridis_c(option = "viridis",
+                         na.value = "transparent") +
+    labs(fill = "dNBR",
+         color = sprintf("Slope %s vs. dNBR",index_name)) +
+    theme_cowplot()
+)
+ggsave2(p, 
+        filename = sprintf("figures/Map_Slope_per_Point_%s_vs_dNBR_%sth.png",
+                           pct_cutoff*100,index_name),
+        bg = "white",width = 10, height = 8)
+
+# Report summary stats for pre-fire observations
+df_filtered %>%
+  group_by(ObservationID) %>%
+  filter(BeforeBurnDate) %>%
+  summarise(
+    n_observations = n()
+  ) %>%
+  summarise(
+    mean_obs = mean(n_observations),
+    median_obs = median(n_observations),
+    min_obs = min(n_observations),
+    max_obs = max(n_observations)
+  )
