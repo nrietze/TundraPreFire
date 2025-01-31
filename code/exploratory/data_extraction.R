@@ -313,15 +313,22 @@ ggsave2(p,
 
 # Load filtered and formatted dataframe
 df_filtered <- read.csv2(sprintf("data/tables/%s_filtered_%sth_pctile.csv",
-                                index_name,pct_cutoff*100))
+                                index_name,pct_cutoff*100)) %>% 
+  mutate(Time = as.Date(Time),
+         burn_date = as.Date(burn_date))
 
 # Filter out observations with fewer than X observations
-
 df_filtered <- df_daily_spectral_index %>%
   inner_join(valid_counts_by_id, by = "ObservationID") %>%
   filter(valid_count >= thr_nobs,
          format(Time, "%Y") == "2020") %>% 
-  select(-valid_count)  
+  select(-valid_count) %>% 
+  # Flag pre- & post-fire observations
+  mutate(
+    Time = ymd_hms(Time),
+    burn_date = ymd_hms(burn_date),
+    BeforeBurnDate = Time < burn_date
+  )
 
 # Plot where these filtered points sit
 sample_points_filtered <- sample_points %>% 
@@ -338,14 +345,6 @@ sample_points_filtered <- sample_points %>%
 ggsave2(p, 
         filename = sprintf("figures/Location_randompoints_%sth_pctile.png",pct_cutoff*100),
         bg = "white",width = 10, height = 8)
-
-# Flag pre- & post-fire observations
-df_filtered <- df_filtered %>% 
-  mutate(
-  Time = ymd_hms(Time),
-  burn_date = ymd_hms(burn_date),
-  BeforeBurnDate = Time < burn_date
-)
 
 # Time series for all points
 ggplot(df_filtered) +
@@ -369,7 +368,7 @@ df_filtered %>%
     theme_cowplot()
 
 ggsave2(sprintf("figures/%s_perpoint.png",index_name),
-            bg = "white",width = 8, height = 8)
+            bg = "white",width = 9, height = 8)
     
 # Histogram of index values
 ggplot(df_filtered) +
