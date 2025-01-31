@@ -356,8 +356,8 @@ ggplot(df_filtered) +
 ggsave2(sprintf("figures/Timeseries_%s_randompoints.png",index_name),
         bg = "white",width = 10, height = 8)
 
-# Time series for 64 random points
-rand_id <- sample(unique(df_filtered$ObservationID), 64)
+# Time series for some random points
+rand_id <- sample(unique(df_filtered$ObservationID), 16)
 
 df_filtered %>% 
   filter(ObservationID %in% rand_id) %>% 
