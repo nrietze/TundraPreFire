@@ -64,6 +64,36 @@ assign_rast_time <- function(lyr) {
   return(lyr)
 }
 
+stack_time_series <- function(hls_dir,utm_tile_id, index_name){
+  # List spectral_index COGs
+  spectral_index_files_s30 <- list.files(hls_dir,
+                                         pattern = sprintf("HLS.S30.T%s.*%s\\.tif$",
+                                                           utm_tile_id,index_name))
+  spectral_index_files_l30 <- list.files(hls_dir,
+                                         pattern = sprintf("HLS.L30.T%s.*%s\\.tif$",
+                                                           utm_tile_id,index_name))
+  
+  cat("Loading rasters...")
+  
+  # Load rasters to list
+  spectral_index_s30_list <- lapply(paste0(hls_dir, spectral_index_files_s30),rast)
+  spectral_index_l30_list <- lapply(paste0(hls_dir, spectral_index_files_l30),rast)
+  
+  cat("Creating image stacks...")
+  
+  # Concatenate as single raster and assign time dimension
+  spectral_index_s30 <- rast(paste0(hls_dir, spectral_index_files_s30))
+  spectral_index_s30 <- sapp(spectral_index_s30, assign_rast_time)
+  
+  spectral_index_l30 <- rast(paste0(hls_dir, spectral_index_files_l30))
+  spectral_index_l30 <- sapp(spectral_index_l30, assign_rast_time)
+  
+  # Merge S30 and L30 stack
+  spectral_index <- c(spectral_index_s30, spectral_index_l30)
+  
+  cat("done.")
+  return(spectral_index)
+}
 
 # 1. Loading and preparing data: ----
 UTM_TILE_ID <- "54WXE"
@@ -185,7 +215,7 @@ weights <- nb2listw(knn, style = "W")
 moran_i <- moran.test(dnbr_sample$dNBR, listw = weights)
 
 ggplot() +
-  geom_spatraster(data = dnbr_in_perimeter) +
+  geom_spatraster(data = mask(dnbr,fire_perimeter_buffered)) +
   scale_fill_viridis_c(option = "inferno",
                        na.value = "white",
                        name = "dNBR") +
@@ -196,45 +226,24 @@ ggplot() +
 
 # ggsave2("figures/stratified_sample_points_moranI.png",bg = "white")
 
-## Stack NDMI rasters
+# 6. Stack spectral_index rasters ----
 HLS_DIR <- "~/data/raster/hls/"
+index_name = "NDMI"
 
-# List NDMI COGs
-ndmi_files_s30 <- list.files(HLS_DIR,
-                             pattern = "S30.T54WXE.*NDVI\\.tif$"
-)
-ndmi_files_l30 <- list.files(HLS_DIR,
-                             pattern = "L30.T54WXE.*NDVI\\.tif$"
-)
-
-ndmi_s30_list <- lapply(paste0(HLS_DIR, ndmi_files_s30),rast)
-
-ndmi_s30 <- rast(paste0(HLS_DIR, ndmi_files_s30))
-ndmi_s30 <- sapp(ndmi_s30, assign_rast_time)
-
-ndmi_l30_list <- lapply(paste0(HLS_DIR, ndmi_files_l30),rast)
-
-ndmi_l30 <- rast(paste0(HLS_DIR, ndmi_files_l30))
-ndmi_l30 <- sapp(ndmi_l30, assign_rast_time)
-
-ndmi <- c(ndmi_s30, ndmi_l30)
-ndmi
+image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
 
 # create raster time series object
-rt <- rts(ndmi, time(ndmi))
+rt <- rts(image_stack, time(image_stack))
 
-df_ndmi <- terra::extract(rt, sample_points) %>%
+df_spectral_index <- terra::extract(rt, sample_points) %>%
   t() %>%
   as_tibble()
 
-summary(df_ndmi)
-filename <- sprintf("ndvi_sampled_%s_%s.csv",UTM_TILE_ID,year)
-write.csv2(df_ndmi,paste0(HLS_DIR,filename))
+filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
+write.csv2(df_spectral_index,paste0(HLS_DIR,filename))
 
 # Load data sample
-index_name <- "NDVI"
-
-df <- read.csv2(sprintf("%s%s_sampled_%s_%s.csv",HLS_DIR,tolower(index_name),UTM_TILE_ID,year)) %>% 
+df <- read.csv2(paste0(HLS_DIR,filename)) %>% 
   select(-1) %>% 
   mutate(dNBR = dnbr_sample$dNBR) %>% 
   as_tibble()
@@ -255,34 +264,29 @@ ggplot(df_nobs) +
   geom_histogram(aes(x = valid_count)) +
   geom_vline(aes(xintercept = thr_nobs),
              color = "red", linetype = "dashed", size = 1) + 
-  geom_text(aes(x = thr_nobs-10, y = 300, 
-                label = paste("75%-ile = ", round(thr_nobs, 2))), 
+  geom_text(aes(x = thr_nobs-10, y = 300), 
+                label = paste("75%-ile = ", round(thr_nobs, 2)), 
             color = "red", vjust = -1) +
-  geom_vline(xintercept = 170,
-             color = "blue", linetype = "dashed", size = 1) +  
-  geom_text(aes(x = 170, y = 200, 
-                label = "170"), 
-            color = "blue", vjust = -1) +
   labs(title = "Number of non-NA observations",
-       subtitle = "Thresholds of valid data (blue = visually, red = 75% percentile)") +
+       subtitle = "Thresholds of valid data (75% percentile)") +
   theme_cowplot()
 
 ggsave2(sprintf("figures/Histogram_%s_observations.png",index_name),
         bg = "white",width = 10, height = 8)
 
 # Compute daily means
-df_daily_ndmi <- df_long %>% 
+df_daily_spectral_index <- df_long %>% 
   group_by(Time, ObservationID) %>% 
   summarise(DailyMean = mean(index_name, na.rm = TRUE),
             dNBR = first(dNBR))
 
 # get nr. of valid observations
-valid_counts_by_id <- df_daily_ndmi %>%
+valid_counts_by_id <- df_daily_spectral_index %>%
   group_by(ObservationID) %>%
   summarise(valid_count = sum(!is.na(DailyMean)))
 
 # Filter out observations with fewer than X observations
-df_filtered <- df_daily_ndmi %>%
+df_filtered <- df_daily_spectral_index %>%
   inner_join(valid_counts_by_id, by = "ObservationID") %>%
   filter(valid_count >= thr_nobs,
          format(Time, "%Y") == "2020") %>% 
