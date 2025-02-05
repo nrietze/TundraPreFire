@@ -243,27 +243,43 @@ df_spectral_index <- terra::extract(rt, sample_points) %>%
 filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
 write.csv2(df_spectral_index,paste0(HLS_DIR,filename))
 
-# Load data sample
-df <- read.csv2(paste0(HLS_DIR,filename)) %>% 
-  select(-1) %>% 
-  mutate(dNBR = dnbr_sample$dNBR) %>% 
-  as_tibble()
+# Load NDVI and NDMI time series
+read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
+                                 sample_points, dnbr_sample){
+  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
+  
+  df <- read.csv2(paste0(HLS_DIR,filename)) %>% 
+    select(-1) %>% 
+    mutate(dNBR = dnbr_sample$dNBR) %>% 
+    as_tibble() %>% 
+    mutate(burn_date = sample_points$burn_date)
+  
+  df_long <- df %>%
+    mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
+    gather(key = "Time", value = index_name, 
+           -c(ObservationID,dNBR,burn_date)) %>% 
+    mutate(Time = as.POSIXct(Time, format = "X%Y.%m.%d.%H.%M.%S")) 
+  
+  return(df_long)
+}
 
-df$burn_date <- sample_points$burn_date
+df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample)
+df_ndvi <- read_hls_data_frames("NDVI",UTM_TILE_ID,year,sample_points, dnbr_sample)
 
-df_long <- df %>%
-  mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-  gather(key = "Time", value = index_name, 
-         -c(ObservationID,dNBR,burn_date)) %>% 
-  mutate(Time = as.POSIXct(Time, format = "X%Y.%m.%d.%H.%M.%S")) 
+# Concatenate the data frames
+df_hls <- df_ndmi %>% 
+  mutate(NDVI = df_ndvi$index_name) %>% 
+  rename(NDMI = index_name)
 
-df_nobs <- df_long %>% 
+
+
+df_nobs <- df_hls %>% 
   select(-dNBR) %>% 
   group_by(ObservationID) %>% 
   summarize(valid_count = sum(!is.na(index_name)))
 
 # Compute daily means
-df_daily_spectral_index <- df_long %>% 
+df_daily_spectral_index <- df_hls %>% 
   group_by(Time, ObservationID) %>% 
   summarise(DailyMean = mean(index_name, na.rm = TRUE),
             dNBR = first(dNBR),
