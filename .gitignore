@@ -87,3 +87,5 @@ rsconnect/
 code/exploratory/HLS_Tutorial.html
 code/*/.ipynb_checkpoints
 data/feature_layers/fire_atlas/sub_daily/*
+data/C2L2/*
+data/raster/hls/test/*

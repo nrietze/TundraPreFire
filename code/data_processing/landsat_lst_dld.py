@@ -14,7 +14,6 @@ import os
 ee.Initialize()
 
 #%% 0. Configure parameters
-
 select_parameters = ['TIR']
 select_metrics = ['nobs']
 percentiles = []
@@ -27,10 +26,10 @@ DOWNLOAD_IMGCOL = True
 YEAR_START = 2020
 YEAR_END = 2020
 MONTH_START = 5
-MONTH_END = 8
+MONTH_END = 10
 
 # Space
-aois = gp.read_file("./data/feature_layers/roi.geojson")
+aois = gp.read_file("../../data/feature_layers/roi.geojson")
 
 bbox = list(aois.total_bounds)
 select_roi = ee.Geometry.Rectangle(bbox)
