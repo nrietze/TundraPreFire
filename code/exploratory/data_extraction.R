@@ -374,7 +374,7 @@ ggsave2(p,
         bg = "white",width = 10, height = 8)
 
 # Load filtered and formatted dataframe
-index_name <- "NDVI"
+index_name <- "NDMI"
 fn_filtered_df <- sprintf("data/tables/%s_filtered_%sth_pctile.csv",
                           index_name,pct_cutoff*100)
 
@@ -383,17 +383,8 @@ if (file.exists(fn_filtered_df)){
   mutate(Time = as.Date(Time),
          burn_date = as.Date(burn_date))
 
-  # Merge with LST data
-  df_lst <- df_lst %>%
-    mutate(Time = as.Date(Time))
-  
-  df_filtered <- df_filtered %>% 
-    left_join(df_lst %>% select(ObservationID, Time, index_name), 
-              by = c("ObservationID", "Time")) %>%
-    rename(LST = index_name) # Rename index_name to LST
-
 } else {
-  
+  print("Filtering data...")
   # Filter out observations with fewer than X observations
   df_filtered <- df_daily_spectral_index %>%
     inner_join(valid_counts_by_id, by = "ObservationID") %>%
@@ -412,6 +403,15 @@ if (file.exists(fn_filtered_df)){
              sprintf("data/tables/%s_filtered_%sth_pctile.csv",
                      index_name,pct_cutoff*100))
 }
+
+# Merge with LST data
+df_lst <- df_lst %>%
+  mutate(Time = as.Date(Time))
+
+df_filtered <- df_filtered %>% 
+  left_join(df_lst %>% select(ObservationID, Time, index_name), 
+            by = c("ObservationID", "Time")) %>%
+  rename(LST = index_name) # Rename index_name to LST
 
 # Plot where these filtered points sit
 sample_points_filtered <- sample_points %>% 
@@ -449,13 +449,13 @@ df_filtered %>%
   ggplot() +
     geom_point(aes(x = Time,y = DailyMean, color = BeforeBurnDate),alpha = .2) +
     labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
-         title = "Highest severity top left to lowest bottom right") +
+         title = "Lowest severity top left to highest bottom right") +
     geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
     facet_wrap(~ObservationID) +
     theme_cowplot()
 
 ggsave2(sprintf("figures/%s_perpoint.png",index_name),
-        bg = "white",width = 9, height = 8)
+        bg = "white",width = 10, height = 8)
 
 # Plot LST time series
 df_filtered %>% 
@@ -465,13 +465,13 @@ df_filtered %>%
   ggplot() +
   geom_point(aes(x = Time,y = LST, color = BeforeBurnDate),alpha = .2) +
   labs(y = sprintf("Daily mean %s\n (per point location)","LST"),
-       title = "Highest severity top left to lowest bottom right") +
+       title =  "Lowest severity top left to highest bottom right") +
   geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
   facet_wrap(~ObservationID) +
   theme_cowplot()
 
 ggsave2(sprintf("figures/%s_perpoint.png","LST"),
-            bg = "white",width = 9, height = 8)
+            bg = "white",width = 10, height = 8)
     
 # Histogram of index values
 ggplot(df_filtered) +
@@ -495,7 +495,115 @@ ggplot(df_filtered) +
        y = "dNBR") +
  theme_cowplot()
 
-# 7. Run pre-fire linear models ----
+# 7. Run spline fitting ----
+model_fit_smoothedspline <- function(df,spar = 0.5) {
+  # Using a spline smoother
+  smooth.spline(x = df$doy, y = df$DailyMean, spar = spar)
+}
+
+model_index_smoothedspline <- function(data, spar = 0.5) {
+  
+  # Use function to fit model
+  model <- model_fit_smoothedspline(data[!is.na(data$DailyMean),],spar)
+  
+  # Generate predictions for curve plotting (for time-period doy 130-300) 
+  pred <- predict(model, data.frame(doy = 130:300))
+  # pred <- unlist(pred$y)
+  
+  # use function to find vertex (linear model)
+  # vertex <- find_vertex(model)
+  # find vertex based on predictions (spline smoother)
+  vertex <- data.frame(
+    x = pred$x[pred$y == max(pred$y)], 
+    y = pred$y[pred$y == max(pred$y)]
+  )
+  
+  # Write necessary values back to df
+  data <- suppressMessages(full_join(data, data.frame(
+    doy = 130:300,
+    spline.max = vertex$y,
+    spline.max.doy = vertex$x,
+    spline.pred = pred
+  ))) 
+  return(data)
+}
+
+df_filtered$doy <- lubridate::yday(df_filtered$Time)
+
+df <- df_filtered %>% filter(ObservationID == 546)
+test_smooth <- model_index_smoothedspline(df[!is.na(df$DailyMean),])
+
+df <- df_filtered %>% 
+  filter(ObservationID == 546 & BeforeBurnDate == TRUE)
+test_smooth_prefire <- model_index_smoothedspline(df[!is.na(df$DailyMean),]) %>% 
+  rename(spline.pred.prefire = 'spline.pred.doy.1')
+
+test_smooth_join <- test_smooth %>%
+  rename(spline.pred = 'spline.pred.doy.1') %>% 
+  left_join(test_smooth_prefire %>% select(spline.pred.doy,spline.pred.prefire),
+            by = "spline.pred.doy")
+
+ggplot(test_smooth_join) + 
+  geom_line(aes(x = doy, y = spline.pred)) +
+  geom_line(aes(x = doy, y = spline.pred.prefire),color = "red") +
+  geom_point(aes(x = doy, y = DailyMean,color = BeforeBurnDate)) +
+  theme_cowplot()
+
+spar <- 0.7
+
+ndmi_smooth <- df_filtered %>%
+  filter(ObservationID %in% rand_id) %>% 
+  group_by(ObservationID) %>% 
+  group_modify(~model_index_smoothedspline(.x,spar = spar))
+
+ndmi_smooth <- ndmi_smooth %>% 
+  rename(spline.pred = 'spline.pred.doy.1')
+
+# Plot time series with spline
+ndmi_smooth %>% 
+  ungroup() %>% 
+  mutate(ObservationID = as.factor(ObservationID)) %>% 
+  mutate(ObservationID = fct_reorder(ObservationID, dNBR)) %>% 
+  ggplot() +
+  geom_line(aes(x = doy, y = spline.pred)) +
+  geom_point(aes(x = doy,y = DailyMean, color = BeforeBurnDate),alpha = .2) +
+  labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
+       title = "Lowest severity top left to highest bottom right",
+       subtitle = sprintf("Spline parameter = %s",spar)) +
+  geom_vline(aes(xintercept = yday(burn_date)), color = "red", linetype = "dashed") +
+  facet_wrap(~ObservationID) +
+  theme_cowplot()
+
+ggsave2(sprintf("figures/%s_perpoint_splines_%s.png",index_name,spar),
+        bg = "white",width = 10, height = 8)
+
+# Fit LOESS
+df <- df_filtered %>% filter(ObservationID == 2391)
+
+spans <- c(0.1,0.3,0.4)
+lobj1 <- loess.smooth(df$doy,df$DailyMean,span = spans[1]) 
+lobj2 <- loess.smooth(df$doy,df$DailyMean,span = spans[2])
+lobj3 <- loess.smooth(df$doy,df$DailyMean,span = spans[3])
+
+ggplot() +
+  geom_point(data = df,aes(x = doy, y = DailyMean)) + 
+  geom_line(aes(x = lobj1$x,y = lobj1$y,
+                color = sprintf("span = %s",spans[1]))) +
+  geom_line(aes(x = lobj2$x,y = lobj2$y,
+                color = sprintf("span = %s",spans[2]))) +
+  geom_line(aes(x = lobj3$x,y = lobj3$y, 
+                color = sprintf("span = %s",spans[3]))) +
+  geom_vline(aes(xintercept = yday(df$burn_date)), color = "red", linetype = "dashed") +
+  labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
+       color = "Smoothness parameters",
+       title = "LOESS fits",
+       subtitle = "(local polynomial, p = 1)") +
+  theme_cowplot()
+
+ggsave2(sprintf("figures/%s_LOESS.png",index_name),
+        bg = "white",width = 10, height = 8)
+
+# 8. Run pre-fire linear models ----
 df_mod <- df_filtered %>%
   group_by(ObservationID) %>% 
   filter(BeforeBurnDate) %>% 
