@@ -82,10 +82,10 @@ stack_time_series <- function(hls_dir,utm_tile_id, index_name){
   cat("Creating image stacks...")
   
   # Concatenate as single raster and assign time dimension
-  spectral_index_s30 <- rast(paste0(hls_dir, spectral_index_files_s30))
+  spectral_index_s30 <- rast(spectral_index_s30_list)
   spectral_index_s30 <- sapp(spectral_index_s30, assign_rast_time)
   
-  spectral_index_l30 <- rast(paste0(hls_dir, spectral_index_files_l30))
+  spectral_index_l30 <- rast(spectral_index_l30_list)
   spectral_index_l30 <- sapp(spectral_index_l30, assign_rast_time)
   
   # Merge S30 and L30 stack
@@ -94,6 +94,38 @@ stack_time_series <- function(hls_dir,utm_tile_id, index_name){
   cat("done.")
   return(spectral_index)
 }
+
+get_ls_datetime <- function(raster){
+  datenum <- global(raster,"max",na.rm=T)
+  date <- as.Date(as.numeric(datenum), origin = "1970-01-01")
+  return(date)
+}
+
+read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
+                                 sample_points, dnbr_sample){
+  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
+  
+  df <- read.csv2(paste0(HLS_DIR,filename)) %>% 
+    select(-1) %>% 
+    mutate(dNBR = dnbr_sample$dNBR) %>% 
+    as_tibble() %>% 
+    mutate(burn_date = sample_points$burn_date)
+  
+  if (index_name == "LST"){
+    fmt = "X%Y.%m.%d"
+  } else{
+    fmt = "X%Y.%m.%d.%H.%M.%S"
+  }
+  
+  df_long <- df %>%
+    mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
+    gather(key = "Time", value = index_name, 
+           -c(ObservationID,dNBR,burn_date)) %>% 
+    mutate(Time = as.POSIXct(Time, format = fmt)) 
+  
+  return(df_long)
+}
+
 
 # 1. Loading and preparing data: ----
 UTM_TILE_ID <- "54WXE"
@@ -116,9 +148,6 @@ selected_fire_perimeter <- fire_perimeters %>%
 
 # Buffer the selected fire perimeter
 fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
-
-plot(selected_fire_perimeter)
-plot(fire_perimeter_buffered,add = TRUE)
 
 binwidth <- 20
 
@@ -179,10 +208,9 @@ st_write(sample_points_sf, "~/data/feature_layers/sample_points.gpkg",
 # 3. Run burn date assignment in python ----
 
 # 4. Extract data ----
-
 sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
   project(crs(dnbr)) %>% 
-  mutate(ObservationID = 1:nrow(sample_points))
+  mutate(ObservationID = 1:nrow(.))
 
 # Extract data at random points 
 dnbr_sample <- terra::extract(dnbr, sample_points,
@@ -227,7 +255,9 @@ ggplot() +
 
 # ggsave2("figures/stratified_sample_points_moranI.png",bg = "white")
 
-# 6. Stack spectral_index rasters ----
+# 6. Stack rasters ----
+
+# HLS spectral indices
 HLS_DIR <- "~/data/raster/hls/"
 index_name = "NDMI"
 
@@ -243,35 +273,51 @@ df_spectral_index <- terra::extract(rt, sample_points) %>%
 filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
 write.csv2(df_spectral_index,paste0(HLS_DIR,filename))
 
-# Load NDVI and NDMI time series
-read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
-                                 sample_points, dnbr_sample){
-  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
-  
-  df <- read.csv2(paste0(HLS_DIR,filename)) %>% 
-    select(-1) %>% 
-    mutate(dNBR = dnbr_sample$dNBR) %>% 
-    as_tibble() %>% 
-    mutate(burn_date = sample_points$burn_date)
-  
-  df_long <- df %>%
-    mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-    gather(key = "Time", value = index_name, 
-           -c(ObservationID,dNBR,burn_date)) %>% 
-    mutate(Time = as.POSIXct(Time, format = "X%Y.%m.%d.%H.%M.%S")) 
-  
-  return(df_long)
-}
 
+# Landsat-8 LST
+LS8_DIR <- "~/data/raster/landsat-8_9/"
+
+# List LST tiffs
+lst_files <- list.files(LS8_DIR,pattern = "*.tif")
+
+# Load rasters to list
+lst_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIR)
+
+lst_time_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIME)
+
+# Concatenate as single raster 
+lst <- rast(lst_list) %>% project(crs(dnbr))
+
+# Extract dates and assign time dimension
+lst_dates <- lapply(lst_time_list,get_ls_datetime)
+
+lst_dates_df <- data.frame(datenum = unlist(lst_dates)) %>% 
+  mutate(date = as.Date(datenum, origin = "1970-01-01"))
+
+terra::time(lst, "days") <- lst_dates_df$date
+
+n <- time(lst)
+dup.idx <- which(duplicated(n))
+lst <- lst[[-dup.idx]]
+
+rt_lst <- rts(lst, time(lst))
+
+df_lst <- terra::extract(rt_lst, sample_points) %>%
+  t() %>%
+  as_tibble()
+
+filename <- sprintf("LST_sampled_%s_%s.csv",UTM_TILE_ID,year)
+write.csv2(df_lst,paste0(HLS_DIR,filename))
+
+# Load NDVI and NDMI time series
 df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample)
 df_ndvi <- read_hls_data_frames("NDVI",UTM_TILE_ID,year,sample_points, dnbr_sample)
+df_lst <- read_hls_data_frames("LST",UTM_TILE_ID,year,sample_points, dnbr_sample)
 
 # Concatenate the data frames
 df_hls <- df_ndmi %>% 
   mutate(NDVI = df_ndvi$index_name) %>% 
   rename(NDMI = index_name)
-
-
 
 df_nobs <- df_hls %>% 
   select(-dNBR) %>% 
@@ -328,23 +374,44 @@ ggsave2(p,
         bg = "white",width = 10, height = 8)
 
 # Load filtered and formatted dataframe
-df_filtered <- read.csv2(sprintf("data/tables/%s_filtered_%sth_pctile.csv",
-                                index_name,pct_cutoff*100)) %>% 
+index_name <- "NDVI"
+fn_filtered_df <- sprintf("data/tables/%s_filtered_%sth_pctile.csv",
+                          index_name,pct_cutoff*100)
+
+if (file.exists(fn_filtered_df)){
+  df_filtered <- read.csv2(fn_filtered_df) %>% 
   mutate(Time = as.Date(Time),
          burn_date = as.Date(burn_date))
 
-# Filter out observations with fewer than X observations
-df_filtered <- df_daily_spectral_index %>%
-  inner_join(valid_counts_by_id, by = "ObservationID") %>%
-  filter(valid_count >= thr_nobs,
-         format(Time, "%Y") == "2020") %>% 
-  select(-valid_count) %>% 
-  # Flag pre- & post-fire observations
-  mutate(
-    Time = ymd_hms(Time),
-    burn_date = ymd_hms(burn_date),
-    BeforeBurnDate = Time < burn_date
-  )
+  # Merge with LST data
+  df_lst <- df_lst %>%
+    mutate(Time = as.Date(Time))
+  
+  df_filtered <- df_filtered %>% 
+    left_join(df_lst %>% select(ObservationID, Time, index_name), 
+              by = c("ObservationID", "Time")) %>%
+    rename(LST = index_name) # Rename index_name to LST
+
+} else {
+  
+  # Filter out observations with fewer than X observations
+  df_filtered <- df_daily_spectral_index %>%
+    inner_join(valid_counts_by_id, by = "ObservationID") %>%
+    filter(valid_count >= thr_nobs,
+           format(Time, "%Y") == "2020") %>% 
+    select(-valid_count) %>% 
+    # Flag pre- & post-fire observations
+    mutate(
+      Time = ymd_hms(Time),
+      burn_date = ymd_hms(burn_date),
+      BeforeBurnDate = Time < burn_date
+    )
+  
+  # Write filtered data frame to CSV
+  write.csv2(df_filtered,
+             sprintf("data/tables/%s_filtered_%sth_pctile.csv",
+                     index_name,pct_cutoff*100))
+}
 
 # Plot where these filtered points sit
 sample_points_filtered <- sample_points %>% 
@@ -373,17 +440,37 @@ ggsave2(sprintf("figures/Timeseries_%s_randompoints.png",index_name),
 
 # Time series for some random points
 rand_id <- sample(unique(df_filtered$ObservationID), 16)
+rand_id <- c(546,1568,1620,1824,1892,2122,2391,2552,2558,2573,2645,2869,2885,2988,3017,3085)
 
 df_filtered %>% 
-  filter(ObservationID %in% rand_id) %>% 
+  filter(ObservationID %in% rand_id) %>%
+  mutate(ObservationID = as.factor(ObservationID)) %>% 
+  mutate(ObservationID = fct_reorder(ObservationID, dNBR)) %>% 
   ggplot() +
     geom_point(aes(x = Time,y = DailyMean, color = BeforeBurnDate),alpha = .2) +
-    labs(y = sprintf("Daily mean %s\n (per point location)",index_name)) +
+    labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
+         title = "Highest severity top left to lowest bottom right") +
     geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
     facet_wrap(~ObservationID) +
     theme_cowplot()
 
 ggsave2(sprintf("figures/%s_perpoint.png",index_name),
+        bg = "white",width = 9, height = 8)
+
+# Plot LST time series
+df_filtered %>% 
+  filter(ObservationID %in% rand_id) %>%
+  mutate(ObservationID = as.factor(ObservationID)) %>% 
+  mutate(ObservationID = fct_reorder(ObservationID, dNBR)) %>% 
+  ggplot() +
+  geom_point(aes(x = Time,y = LST, color = BeforeBurnDate),alpha = .2) +
+  labs(y = sprintf("Daily mean %s\n (per point location)","LST"),
+       title = "Highest severity top left to lowest bottom right") +
+  geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
+  facet_wrap(~ObservationID) +
+  theme_cowplot()
+
+ggsave2(sprintf("figures/%s_perpoint.png","LST"),
             bg = "white",width = 9, height = 8)
     
 # Histogram of index values
@@ -407,11 +494,6 @@ ggplot(df_filtered) +
   labs(x = sprintf("Daily mean %s\n (per point location)",index_name),
        y = "dNBR") +
  theme_cowplot()
-
-# Write filtered data frame to CSV
-write.csv2(df_filtered,
-           sprintf("data/tables/%s_filtered_%sth_pctile.csv",
-                  index_name,pct_cutoff*100))
 
 # 7. Run pre-fire linear models ----
 df_mod <- df_filtered %>%
