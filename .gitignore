@@ -15,7 +15,6 @@
 **/*.lyrx
 data/feature_layers/MGRS_centroids.geojson
 
-**/*.csv
 
 *.out
 *.pyc
