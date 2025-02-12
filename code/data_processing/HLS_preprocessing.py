@@ -255,6 +255,37 @@ def calc_index(files: list,
             (spectral_index >= -1) & (spectral_index <= 1),np.nan)
         
         SCALE_FACTOR = 1
+        
+    elif index_name == "NMDI":
+        # load spectral bands needed for NMDI
+        nir = load_rasters(files, "NIR1",
+                           band_dict = hls_band_dict,
+                           region = region,
+                           chunk_size = chunk_size)
+        
+        swir1 = load_rasters(files, "SWIR1",
+                             band_dict = hls_band_dict,
+                             region = region,
+                             chunk_size = chunk_size)
+        
+        swir2 = load_rasters(files, "SWIR2",
+                             band_dict = hls_band_dict,
+                             region = region,
+                             chunk_size = chunk_size)
+        
+        spectral_index = nir.copy()
+        
+        with np.errstate(divide='ignore'): #to ignore divide by zero
+            spectral_index_data = (nir - (swir1 - swir2)) / (nir + (swir1 - swir2))
+        
+        # Replace the dummy xarray.DataArray data with the new spectral index data
+        spectral_index.data = spectral_index_data
+        
+        # Exclude data outside valid value range
+        spectral_index = spectral_index.where(
+            (spectral_index >= -1) & (spectral_index <= 1),np.nan)
+        
+        SCALE_FACTOR = 1
 
     elif index_name == "NBR":
         # load spectral bands needed for NBR
@@ -299,6 +330,10 @@ def calc_index(files: list,
         # Replace the dummy xarray.DataArray data with the new spectral index data
         spectral_index.data = spectral_index_data
         
+        # Exclude data outside valid value range
+        spectral_index = spectral_index.where(
+            (spectral_index >= -1) & (spectral_index <= 1),np.nan)
+        
         SCALE_FACTOR = 1
         
     # change the long_name in the attributes
@@ -342,7 +377,7 @@ def calc_index(files: list,
         
         # Reproject if not EPSG conform
         if ndwi.rio.crs is not CRS.from_epsg(utm_epsg_code):
-            with np.errstate(divide='ignore'): 
+            with np.errstate(divide='ignore'):
                 ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
                                             chunks=chunk_size)
             
