@@ -17,6 +17,7 @@ library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
+library(quantreg)
 set.seed(10)
 
 knitr::opts_chunk$set(
@@ -670,8 +671,6 @@ ggplot() +
 I use the full-season splines (spar = 0.5) to predict NDMI values at different time intervals before the fire and then calculate their integrals.
 
 ```{r}
-df_filtered$doy <- lubridate::yday(df_filtered$date)
-
 df <- df_filtered %>% 
   filter(ObservationID == 2391,
          !is.na(DailyMeanNDMI))
@@ -759,6 +758,20 @@ Let's look at the relationship (scatter) between dNBR and the cumulative NDMI fr
 ggplot(data,aes(x = d_prefire_7 ,y = dNBR)) +
   geom_point(alpha = .2) +
   geom_smooth(method='lm') +
+  labs(x = sprintf("time-integrated NDMI 7 days pre-fire %s",index_name),
+       y = "dNBR") +
+  theme_cowplot()
+```
+It looks like there are two groups in this point cloud.
+
+We could check with a quantile regression if it captures the different behaviors
+```{r}
+q10 <- seq(0.05, 0.95, by = 0.1)
+
+# Plot time-integrated NDMI 7 days before fire vs. dNBR
+ggplot(data,aes(x = d_prefire_7 ,y = dNBR)) +
+  geom_point(alpha = .2) +
+  geom_quantile(quantiles  = q10) +
   labs(x = sprintf("time-integrated NDMI 7 days pre-fire %s",index_name),
        y = "dNBR") +
   theme_cowplot()
