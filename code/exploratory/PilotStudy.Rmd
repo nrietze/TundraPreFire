@@ -3,8 +3,9 @@ title: "Pre-fire vegetation"
 author: "Nils Rietze"
 date: "2025-02-03"
 output:
+  pdf_document: default
   html_document:
-    code_folding: "hide"
+    code_folding: hide
     theme: sandstone
     highlight: tango
 ---
@@ -30,7 +31,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
                                  sample_points, dnbr_sample){
   filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
   
-  df <- read.csv2(paste0(HLS_DIR,filename)) %>% 
+  df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
     select(-1) %>% 
     mutate(dNBR = dnbr_sample$dNBR) %>% 
     as_tibble() %>% 
@@ -57,6 +58,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
 ```{r, include=FALSE}
 # Config, loading and preparing data
 HLS_DIR <- "~/data/raster/hls/"
+TABLE_DIR <- "~/data/tables/"
 index_name = "NDMI"
 TEST_ID <- 14211 # fire ID for part of the large fire scar
 
@@ -105,7 +107,8 @@ fn_filtered_df <- sprintf("data/tables/merged_filtered_%sth_pctile.csv",pct_cuto
 
 df_filtered <- read.csv2(fn_filtered_df) %>% 
     mutate(date = as.Date(date),
-           burn_date = as.Date(burn_date))
+           burn_date = as.Date(burn_date),
+           doy = yday(date))
 ```
 
 # 1. Descriptive statistics
@@ -210,7 +213,6 @@ df_nobs <- df_ndmi %>%
   summarize(valid_count = sum(!is.na(NDMI)))
 
 # Define percentile of nr. of observations to use as cutoff
-pct_cutoff <- 0.75
 thr_nobs <- quantile(df_nobs$valid_count,pct_cutoff , na.rm = TRUE)
 
 (ggplot(df_nobs) +
@@ -382,10 +384,11 @@ ggplot(df_filtered) +
 ```{r}
 # Scatterplot spectral index vs.dNBR 
 (ggplot(df_filtered) +
-  geom_point(aes(x = !!sym(paste0("DailyMean",index_name)),y = dNBR),alpha = .2) +
-  labs(x = sprintf("Daily mean %s\n (per point location)",index_name),
-       y = "dNBR") +
- theme_cowplot())
+  geom_point(aes(x = !!sym(paste0("DailyMean",index_name)),y = dNBR,
+                 color = BeforeBurnDate),alpha = .2) +
+  labs(x = sprintf("Daily mean %s\n (per point location)",index_name),y = "dNBR") +
+   facet_wrap(~as.factor(BeforeBurnDate)) +
+   theme_cowplot())
 ```
 
 
@@ -507,8 +510,6 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
 
 We can fit a spline for the day of year and spectral index
 ```{r}
-df_filtered$doy <- lubridate::yday(df_filtered$date)
-
 df <- df_filtered %>% 
   filter(ObservationID == 2391,
          !is.na(DailyMeanNDMI))
@@ -690,9 +691,11 @@ pred_before_burn <- pred %>%
   mutate(TI_index = revcumsum(index),
          days_before_fire = doy_burn - doy)
 
-TI_1week <- pred_before_burn %>% 
-  filter(days_before_fire ==7)
-
+ggplot(pred_before_burn) +
+  geom_point(aes(x = days_before_fire,y = TI_index)) + 
+  labs(x = "Nr. of days before the fire",
+       y = "Time-integrated NDMI") + 
+  theme_cowplot()
 ```
 
 
@@ -747,17 +750,20 @@ data <- suppressMessages(df_filtered %>%
                            right_join(ndmi_smooth, by = "ObservationID")
                          ) 
 
+summary(data)
 ```
 
+Let's look at the relationship (scatter) between dNBR and the cumulative NDMI from 1-7 days before the fire:
 ```{r}
 # Plot time-integrated NDMI 7 days before fire vs. dNBR
-ggplot(data) +
-  geom_point(aes(x = d_prefire_7 ,y = dNBR),alpha = .2) +
+ggplot(data,aes(x = d_prefire_7 ,y = dNBR)) +
+  geom_point(alpha = .2) +
+  geom_smooth(method='lm') +
   labs(x = sprintf("time-integrated NDMI 7 days pre-fire %s",index_name),
        y = "dNBR") +
   theme_cowplot()
 ```
-Now, let's see which time before the fire has the highest R2
+Now, let's see which time before the fire has the highest R2:
 
 ```{r}
 d_prefire_cols <- grep("^d_prefire_", names(data), value = TRUE)
@@ -789,8 +795,17 @@ results <- results %>% arrange(days_before_fire)
 ggplot(results) + 
   geom_point(aes(x = days_before_fire, y = r_squared)) + 
   theme_cowplot()
+```
 
+Does it look like the average of predicted NDMI before the fire? A bit inversed, yes.
+```{r}
 mean_ndmi_pre_day <- colMeans(data[d_prefire_cols])
+
+plot(mean_ndmi_pre_day)
+```
+
+
+```{r}
 results %>% 
   mutate(avg_ndmi = mean_ndmi_pre_day) %>% 
   ggplot() + 
