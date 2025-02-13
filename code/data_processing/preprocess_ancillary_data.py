@@ -156,7 +156,7 @@ for row in tqdm(merged_fire_perimeters.iterrows(), total = len(merged_fire_perim
      # select that nearest tile
     nearest_descals_tile_centroid = descals_tile_centroids.iloc[sindex[1,:]]
     
-    descals_lut.loc[descals_lut.index[i], 'descals_file'] = nearest_descals_tile_centroid.filename.item()
+    descals_lut.loc[descals_lut.index[i], 'descals_file'] = os.path.basename(nearest_descals_tile_centroid.filename.item())
     descals_lut.loc[descals_lut.index[i], 'fireid'] = vect.fireid
     descals_lut.loc[descals_lut.index[i], 'UniqueID'] = vect.UniqueID
     
