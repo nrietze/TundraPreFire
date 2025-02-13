@@ -188,6 +188,9 @@ if (!file.exists(fname_sample_points)){
   # Create spatial point sample
   sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
   
+  # Extract Descals et al. (2022) burn class to point
+  sample_points <- terra::extract(burned_area_descals, sample_points)
+  
   # Convert to sf
   sample_points_sf <- st_as_sf(sample_points)
   
