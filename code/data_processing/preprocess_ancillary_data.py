@@ -1,13 +1,14 @@
 # %%
 import os
 from glob import glob
-
+from tqdm import tqdm
+import rasterio as rio
+from shapely.geometry import Point
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 
 # %% 0. Configure stuff
-
 def find_optimal_utm_tile(mgrs_tile_centroids: gpd.GeoDataFrame,
                           fire_polygon: gpd.GeoDataFrame) -> str:
     """
@@ -33,7 +34,8 @@ def find_optimal_utm_tile(mgrs_tile_centroids: gpd.GeoDataFrame,
     return nearest_mgrs_tile_centroid.Name.item()
 
 # %% 1. Load data
-DATA_FOLDER = '/data/nrietz/'
+DATA_FOLDER = '/data/nrietz/' # on sciencecluster
+DATA_FOLDER = 'data/' # on local machine
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters_2020 = gpd.read_file(os.path.join(DATA_FOLDER,
@@ -110,8 +112,52 @@ else:
     # export filtered fire perimeters to file ( exclude "centroids" column from export)
     fire_within_cavm.drop(columns=["centroid"]).to_file(fname_perims_in_cavm)
     
-    # Export uniwue tile names as a txt file for HLS dowloading
+    # Export unique tile names as a txt file for HLS dowloading
     unique_utm_tile_ids = fire_within_cavm.opt_UTM_tile.unique()
     np.savetxt("code/data_processing/tileid_file.txt",
                unique_utm_tile_ids,fmt="%s")
-# %%
+
+
+# %% 2. Generate LUT for descals burned area tiles
+RASTER_DIR = "data/raster/burned_area_descals/"
+
+tiff_list = glob(RASTER_DIR + "*.tif")
+
+descals_lut = pd.DataFrame({"descals_file" : np.repeat("n",len(merged_fire_perimeters)),
+                            "fireid" : np.zeros(len(merged_fire_perimeters),dtype = int),
+                            "UniqueID" : np.zeros(len(merged_fire_perimeters),dtype = int)
+                            })
+
+# Get centroids of descals tiles and format to geopandas data series
+coordinates = [rio.open(file).lnglat() for file in tiff_list]
+
+points = [Point(x, y) for x, y in coordinates]
+
+descals_tile_centroids = gpd.GeoSeries(points)
+descals_tile_centroids = gpd.GeoDataFrame(
+    geometry=points,
+    data={
+        'filename': tiff_list,
+        'longitude': [p.x for p in points],
+        'latitude': [p.y for p in points]
+    }
+)
+
+# Assign optimal UTM tile name to the fire perimeter (only in study region, and in WGS84)
+for row in tqdm(merged_fire_perimeters.iterrows(), total = len(merged_fire_perimeters)):
+    i = row[0]
+    vect = row[1]
+    
+    # Get attributes of that fire perimeter
+    fire_centroid = vect.geometry.centroid
+        
+    sindex = descals_tile_centroids.geometry.sindex.nearest(fire_centroid)
+    
+     # select that nearest tile
+    nearest_descals_tile_centroid = descals_tile_centroids.iloc[sindex[1,:]]
+    
+    descals_lut.loc[descals_lut.index[i], 'descals_file'] = nearest_descals_tile_centroid.filename.item()
+    descals_lut.loc[descals_lut.index[i], 'fireid'] = vect.fireid
+    descals_lut.loc[descals_lut.index[i], 'UniqueID'] = vect.UniqueID
+    
+descals_lut.to_csv(os.path.join(DATA_FOLDER,"tables/descals_tile_LUT.csv"))   
