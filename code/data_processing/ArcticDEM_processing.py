@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import geopandas as gpd
 import subprocess
 import shlex
@@ -68,7 +69,7 @@ def download_and_extract_arcticdem(tile_index, output_dir="data/raster/arcticDEM
 
 #%% 1. Load data
 DATA_FOLDER = '/data/nrietz/' # on sciencecluster
-DATA_FOLDER = 'data/' # on local machine
+# DATA_FOLDER = 'data/' # on local machine
 
 # ArcticDEM mosaic tile index
 index_features = gpd.read_file(os.path.join(DATA_FOLDER,
@@ -85,8 +86,17 @@ fire_perimeters_stereo = fire_perimeters.to_crs(index_features.crs)
 dem_tiles_intersect = gpd.overlay(index_features,fire_perimeters_stereo,how='intersection')
 
 # get tile index list for download
+print("Finding DEM tiles overlapping with fire perimeters.")
 tile_indices = dem_tiles_intersect.supertile.unique()
 
+# Write tile index list to file
+np.savetxt(os.path.join(DATA_FOLDER,"/tables/ArcticDEM_tileid_file.txt"),
+               tile_indices,fmt="%s")
+
+
+tile_indices
+
 for tile_index in tile_indices[:2]:
-    download_and_extract_arcticdem(tile_index,
-                                   output_dir = os.path.join(DATA_FOLDER,"raster/arcticDEM"))
+  print("Downloading ArcticDEM data for tile:", tile_index)
+  download_and_extract_arcticdem(tile_index,
+                                 output_dir = "~/scratch/raster/arcticDEM")
