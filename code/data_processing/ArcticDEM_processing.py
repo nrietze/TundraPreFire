@@ -1,9 +1,12 @@
 import os
 import numpy as np
-import geopandas as gpd
 import subprocess
+import geopandas as gpd
 import shlex
 import tarfile
+
+import multiprocessing
+from joblib import Parallel, delayed
 
 #%% 0. configure functions
 def find_optimal_dem_tile(dem_tile_centroids: gpd.GeoDataFrame,
@@ -68,38 +71,52 @@ def download_and_extract_arcticdem(tile_index, output_dir="data/raster/arcticDEM
                  print(f"Error extracting {filepath}: {e}")
 
 #%% 1. Load data
-DATA_FOLDER = '/data/nrietz/' # on sciencecluster
+DATA_FOLDER = '~/data/' # on sciencecluster
 # DATA_FOLDER = 'data/' # on local machine
 
-# ArcticDEM mosaic tile index
-index_features = gpd.read_file(os.path.join(DATA_FOLDER,
-                                            "feature_layers/ArcticDEM_Mosaic_Index_v4_1_gpkg.gpkg"))
+DOWNLOAD_DATA = True
 
-# Load fire perimeters
-fire_perimeters = gpd.read_file(os.path.join(DATA_FOLDER,
-                                             "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"))
+fname_tile_list = "data/tables/ArcticDEM_tileid_file.txt"
 
-# reproject to ArcticDEM tile crs
-fire_perimeters_stereo = fire_perimeters.to_crs(index_features.crs)
-    
-# perform spatial intersect of centroids with CAVM
-dem_tiles_intersect = gpd.overlay(index_features,fire_perimeters_stereo,how='intersection')
-
-# get tile index list for download
-print("Finding DEM tiles overlapping with fire perimeters.")
-tile_indices = dem_tiles_intersect.supertile.unique()
-
-# Write tile index list to file
-fname_tile_list = os.path.join(DATA_FOLDER,"tables/ArcticDEM_tileid_file.txt")
-with open(fname_tile_list,"w") as outfile:
-  outfile.write('\n'.join(str(i) for i in tile_indices))
-
-# Read tile list file
-with open(fname_tile_list, "r") as tile_file:
-    # lines = tile_file.readlines()
-    tile_indices_fromfile = [line.replace("\n","") for line in tile_file]
+if not os.path.exists(fname_tile_list):
+  print("Matching ArcticDEM tiles with fire perimeters")
   
-for tile_index in tile_indices_fromfile[:2]:
-  print("Downloading ArcticDEM data for tile:", tile_index)
-  download_and_extract_arcticdem(tile_index,
-                                 output_dir = "~/scratch/raster/arcticDEM")
+  # ArcticDEM mosaic tile index
+  index_features = gpd.read_file(os.path.join(DATA_FOLDER,
+                                              "feature_layers/ArcticDEM_Mosaic_Index_v4_1_gpkg.gpkg"))
+  
+  # Load fire perimeters
+  fire_perimeters = gpd.read_file(os.path.join(DATA_FOLDER,
+                                               "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"))
+  
+  # reproject to ArcticDEM tile crs
+  fire_perimeters_stereo = fire_perimeters.to_crs(index_features.crs)
+      
+  # perform spatial intersect of centroids with CAVM
+  dem_tiles_intersect = gpd.overlay(index_features,fire_perimeters_stereo,how='intersection')
+  
+  # get tile index list for download
+  print("Finding DEM tiles overlapping with fire perimeters.")
+  tile_indices = dem_tiles_intersect.supertile.unique()
+  
+  # Write tile index list to file
+  with open(fname_tile_list,"w") as outfile:
+    outfile.write('\n'.join(str(i) for i in tile_indices))
+
+if DOWNLOAD_DATA:
+  # Read tile list file
+  with open(fname_tile_list, "r") as tile_file:
+      # lines = tile_file.readlines()
+      tile_indices_fromfile = [line.replace("\n","") for line in tile_file]
+    
+  # Download ArcticDEM rasters
+  num_workers = (
+          int(os.environ.get("SLURM_CPUS_PER_TASK"))
+          if os.environ.get("SLURM_CPUS_PER_TASK")
+          else os.cpu_count()
+      )
+  
+  multiprocessing.set_start_method('spawn')
+      
+  Parallel(n_jobs=num_workers, backend='loky')(
+      delayed(download_and_extract_arcticdem)(tile_index,output_dir = "/scratch/nrietz/raster/arcticDEM") for tile_index in tile_indices_fromfile)
