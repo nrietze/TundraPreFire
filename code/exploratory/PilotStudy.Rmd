@@ -17,6 +17,7 @@ library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
+library(lubridate)
 library(quantreg)
 set.seed(10)
 
@@ -36,7 +37,8 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
     select(-1) %>% 
     mutate(dNBR = dnbr_sample$dNBR) %>% 
     as_tibble() %>% 
-    mutate(burn_date = sample_points$burn_date)
+    mutate(burn_date = sample_points$burn_date,
+           descals_burn_class = sample_points$descals_burned)
   
   if (index_name == "LST"){
     fmt = "X%Y.%m.%d"
@@ -47,7 +49,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
   df_long <- df %>%
     mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
     gather(key = "Time", value = index_name, 
-           -c(ObservationID,dNBR,burn_date)) %>% 
+           -c(ObservationID,dNBR,burn_date,descals_burn_class)) %>% 
     mutate(Time = as.POSIXct(Time, format = fmt)) 
   
   return(df_long)
@@ -98,10 +100,6 @@ sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>%
 # Extract data at random points 
 dnbr_sample <- terra::extract(dnbr, sample_points,
                               ID = FALSE, xy = TRUE)
-
-# Load NDMI raster for nr. of observations
-df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample) %>% 
-  rename("NDMI" = index_name)
 
 # Load filtered and formatted dataframe
 fn_filtered_df <- sprintf("data/tables/merged_filtered_%sth_pctile.csv",pct_cutoff*100)
@@ -163,6 +161,10 @@ p3 <- ggplot(data = dnbr_sample, aes(x = dNBR)) +
 ## b. Check nr. of available observations per point
 Let's see how many non-NA observations each sampled point has:
 ```{r}
+# Load NDMI raster for nr. of observations
+df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample) %>% 
+  rename("NDMI" = index_name)
+
 # get nr. of valid observations per point
 valid_counts_by_id <- df_ndmi %>%
   group_by(ObservationID) %>%
@@ -511,14 +513,16 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
 
 We can fit a spline for the day of year and spectral index
 ```{r}
+TEST_PIXEL <- 2742
+
 df <- df_filtered %>% 
-  filter(ObservationID == 2391,
+  filter(ObservationID == TEST_PIXEL,
          !is.na(DailyMeanNDMI))
 
 test_smooth <- model_index_smoothedspline(df$doy,df$DailyMeanNDMI,df)
 
 df <- df_filtered %>% 
-  filter(ObservationID == 2391,
+  filter(ObservationID == TEST_PIXEL,
          BeforeBurnDate == TRUE,
          !is.na(DailyMeanNDMI))
 
@@ -546,15 +550,16 @@ So maybe a different spline parameter enabling a broader segmentation might help
 
 ```{r}
 spar <- 0.7
+TEST_PIXEL <- 2742
 
 df <- df_filtered %>% 
-  filter(ObservationID == 2391,
+  filter(ObservationID == TEST_PIXEL,
          !is.na(DailyMeanNDMI))
 
 test_smooth <- model_index_smoothedspline(df$doy,df$DailyMeanNDMI,df,spar = spar)
 
 df <- df_filtered %>% 
-  filter(ObservationID == 2391,
+  filter(ObservationID == TEST_PIXEL,
          BeforeBurnDate == TRUE,
          !is.na(DailyMeanNDMI))
 
@@ -616,7 +621,8 @@ So I tried LOESS smoothing, which can deal with edge effects.
 First, I ran a first order LOESS, so it's fitting a linear regression in each local window:
 
 ```{r}
-df <- df_filtered %>% filter(ObservationID == 2391)
+TEST_PIXEL <- 2742
+df <- df_filtered %>% filter(ObservationID == TEST_PIXEL)
 
 spans <- c(0.1,0.3,0.4)
 lobj1 <- loess.smooth(df$doy,df$DailyMeanNDMI,span = spans[1]) 
@@ -643,7 +649,7 @@ ggplot() +
 ```
 Would a second order polynomial be better?
 ```{r}
-df <- df_filtered %>% filter(ObservationID == 2391)
+df <- df_filtered %>% filter(ObservationID == TEST_PIXEL)
 
 spans <- c(0.1,0.3,0.4)
 lobj1 <- loess.smooth(df$doy,df$DailyMeanNDMI,span = spans[1], degree = 2) 
@@ -667,12 +673,55 @@ ggplot() +
 
 ```
 
+## d. Exponential curve to LST
+For LST I fit an exponential curve.
+```{r}
+df <- df_filtered %>% filter(ObservationID == TEST_PIXEL)
+
+poly_fit1 <- lm(df$LST ~ poly(df$doy, 2, raw=TRUE)) # 2nd order polynomial
+
+ggplot(data = df,aes(x = doy, y = LST)) +
+  geom_point() + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw = TRUE), colour = "red") + 
+  geom_vline(aes(xintercept = yday(df$burn_date)), color = "red", linetype = "dashed") +
+  labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
+       color = "Smoothness parameters",
+       title = "Polynomial fit",
+       subtitle = "(quadratic, p = 2)") +
+  theme_cowplot()
+```
+
+Plot a couple of LST time series with polynomial fits:
+```{r}
+# Plot multiple time series with spline
+(df_filtered %>%
+    filter(ObservationID %in% rand_id) %>% 
+    mutate(ObservationID = as.factor(ObservationID)) %>% 
+    mutate(ObservationID = fct_reorder(ObservationID, dNBR)) %>% 
+    ggplot(aes(x = doy, y = LST)) +
+      geom_point() + 
+      geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw = TRUE), colour = "red") + 
+      geom_vline(aes(xintercept = yday(burn_date)), color = "red", linetype = "dashed") +
+      labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
+           color = "Smoothness parameters",
+           title = "Polynomial fit",
+           subtitle = "(quadratic, p = 2)") +
+      facet_wrap(~ObservationID) +
+      theme_cowplot())
+
+ggsave2("figures/LST_quadratic_fits.png",
+        bg = "white",width = 10, height = 8)
+```
+
+
 # 4. Retrieve time-integrated metric
 I use the full-season splines (spar = 0.5) to predict NDMI values at different time intervals before the fire and then calculate their integrals.
 
 ```{r}
+TEST_PIXEL <- 2742
+
 df <- df_filtered %>% 
-  filter(ObservationID == 2391,
+  filter(ObservationID == TEST_PIXEL,
          !is.na(DailyMeanNDMI))
 
 test_smooth <- model_index_smoothedspline(df$doy,df$DailyMeanNDMI,df) %>% 
@@ -742,25 +791,29 @@ ndmi_smooth <- df_filtered %>%
 # Merge dataframes
 data <- suppressMessages(df_filtered %>%
                            # filter(ObservationID %in% rand_id) %>% 
-                           select(ObservationID,dNBR,burn_date) %>% 
+                           select(ObservationID,dNBR,burn_date, descals_burn_class) %>% 
                            group_by(ObservationID) %>% 
                            unique() %>% 
                            ungroup() %>% 
                            right_join(ndmi_smooth, by = "ObservationID")
-                         ) 
+                         ) %>% 
+  mutate(descals_burn_class = factor(descals_burn_class,labels = c("unburned","burned")))
 
-summary(data)
 ```
 
 Let's look at the relationship (scatter) between dNBR and the cumulative NDMI from 1-7 days before the fire:
 ```{r}
 # Plot time-integrated NDMI 7 days before fire vs. dNBR
-ggplot(data,aes(x = d_prefire_7 ,y = dNBR)) +
+ggplot(data,aes(x = d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
   geom_point(alpha = .2) +
   geom_smooth(method='lm') +
-  labs(x = sprintf("time-integrated NDMI 7 days pre-fire %s",index_name),
-       y = "dNBR") +
+  labs(x = sprintf("Cumulative %s (sum over 1 to 7 days pre-fire)",index_name),
+       y = "dNBR",
+       color = "Burn class (Descals et al., 2022)") +
   theme_cowplot()
+
+ggsave2("figures/7d_prefireNDMI_vs_dNBR.png",
+        bg = "white",width = 10, height = 8)
 ```
 It looks like there are two groups in this point cloud.
 
@@ -772,7 +825,7 @@ q10 <- seq(0.05, 0.95, by = 0.1)
 ggplot(data,aes(x = d_prefire_7 ,y = dNBR)) +
   geom_point(alpha = .2) +
   geom_quantile(quantiles  = q10) +
-  labs(x = sprintf("time-integrated NDMI 7 days pre-fire %s",index_name),
+  labs(x = sprintf("Cumulative %s (sum over 1 to 7 days pre-fire)",index_name),
        y = "dNBR") +
   theme_cowplot()
 ```
@@ -827,3 +880,79 @@ results %>%
   theme_cowplot()
 ```
 
+## b. Time integrated LST with polynomials
+```{r}
+# Restructured function to return vector of predictions
+model_LST_polynomial <- function(x,y,full_data) {
+  
+  # Use function to fit model
+  model <- lm(y ~ poly(x, 2, raw=TRUE))
+  
+  # Generate predictions for curve plotting (for time-period doy 130-300) 
+  pred <- data.frame(preds = predict(model, data.frame(x = 130:300))) %>% 
+    mutate(doy = 130:300)
+
+  # Get DOY of burn
+  doy_burn <- yday(full_data$burn_date[1])
+  
+  pred_before_burn <- pred %>% 
+    filter(doy < doy_burn) %>% 
+    mutate(cumsum_lst = revcumsum(preds),
+           lst_pred = preds,
+           days_before_fire = doy_burn - doy)
+  
+  # Prepare output vector of 40-day predictions
+  out_data <- pred_before_burn %>% 
+    filter(days_before_fire <= 40) %>% 
+    select(days_before_fire, cumsum_lst,lst_pred) %>% 
+    pivot_wider(
+      names_from = days_before_fire,
+      values_from = c(cumsum_lst,lst_pred),
+      names_prefix = "d_prefire_"
+      ) 
+    
+  return(out_data)
+}
+
+# Apply spline to each time series point
+lst_smooth <- df_filtered %>%
+  group_by(ObservationID) %>% 
+  group_modify(~model_LST_polynomial(.x$doy,.x$LST,.x))
+
+# Merge dataframes
+data <- suppressMessages(df_filtered %>%
+                           # filter(ObservationID %in% rand_id) %>% 
+                           select(ObservationID,dNBR,burn_date, descals_burn_class) %>% 
+                           group_by(ObservationID) %>% 
+                           unique() %>% 
+                           ungroup() %>% 
+                           right_join(lst_smooth, by = "ObservationID")
+                         ) %>% 
+  mutate(descals_burn_class = factor(descals_burn_class,labels = c("unburned","burned")))
+
+```
+
+Scatter plot cumulative LST
+```{r}
+# Plot time-integrated LST 7 days before fire vs. dNBR
+ggplot(data, aes(x = cumsum_lst_d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
+  geom_point(alpha = .2) +
+  geom_smooth(method='lm') +
+  labs(x = "Cumulative LST (sum over 1 to 7 days pre-fire)",
+       y = "dNBR",
+       color = "Burn class (Descals et al., 2022)") +
+  facet_wrap(~descals_burn_class) +
+  theme_cowplot()
+```
+Scatter plot single-day LST prediction vs dNBR:
+```{r}
+# Plot time-integrated LST 7 days before fire vs. dNBR
+ggplot(data, aes(x = lst_pred_d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
+  geom_point(alpha = .2) +
+  geom_smooth(method='lm') +
+  labs(x = "LST (predicted 7 days pre-fire)",
+       y = "dNBR",
+       color = "Burn class (Descals et al., 2022)") +
+  facet_wrap(~descals_burn_class) +
+  theme_cowplot()
+```

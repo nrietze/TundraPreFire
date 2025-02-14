@@ -107,7 +107,8 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
     select(-1) %>% 
     mutate(dNBR = dnbr_sample$dNBR) %>% 
     as_tibble() %>% 
-    mutate(burn_date = sample_points$burn_date)
+    mutate(burn_date = sample_points$burn_date,
+           descals_burn_class = sample_points$descals_burned)
   
   if (index_name == "LST"){
     fmt = "X%Y.%m.%d"
@@ -118,7 +119,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
   df_long <- df %>%
     mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
     gather(key = "Time", value = index_name, 
-           -c(ObservationID,dNBR,burn_date)) %>% 
+           -c(ObservationID,dNBR,burn_date,descals_burn_class)) %>% 
     mutate(Time = as.POSIXct(Time, format = fmt)) 
   
   return(df_long)
@@ -156,6 +157,32 @@ selected_fire_perimeter <- fire_perimeters %>%
   filter(fireid  == TEST_ID) %>%
   project(crs(dnbr))
 
+# Load descals burned area raster for the selected fire
+descals_lut <- read.csv("data/tables/descals_tile_LUT.csv")
+
+descals_tilename <- descals_lut %>% 
+  filter(fireid  == TEST_ID) %>% 
+  select(descals_file)
+
+# read raster
+descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",descals_tilename)) 
+
+# Reclassify to binary burned area raster where 1 is burned that year (of selected fire perimeter), 0 not
+year_value_descals <- selected_fire_perimeter$tst_year - 1990 # value 30 is for burned area in 2020
+
+# ... and crop with reprojected fire perimeter (and 1km buffer)
+descals_rast_bin <- terra::as.int(descals_rast == year_value_descals) %>% 
+  crop(buffer(
+    project(selected_fire_perimeter,crs(descals_rast))
+    ,1e3))
+
+# Reproject raster if necessary
+if (crs(descals_rast_bin) != crs(selected_fire_perimeter)){
+  descals_rast_bin <- project(descals_rast_bin,
+                              crs(selected_fire_perimeter),
+                              method = "near")
+}
+
 # Buffer the selected fire perimeter
 fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
 
@@ -189,7 +216,7 @@ if (!file.exists(fname_sample_points)){
   sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
   
   # Extract Descals et al. (2022) burn class to point
-  sample_points <- terra::extract(burned_area_descals, sample_points)
+  sample_points$descals_burned <- terra::extract(descals_rast_bin, sample_points, ID = F)
   
   # Convert to sf
   sample_points_sf <- st_as_sf(sample_points)
@@ -295,6 +322,12 @@ if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
   dnbr_sample <- terra::extract(dnbr, sample_points,
                                 ID = FALSE, xy = TRUE)
   
+  # Extract topography at random points 
+  elevation_sample <- terra::extract(dnbr, sample_points,ID = FALSE, xy = TRUE)
+  slope_sample <- terra::extract(dnbr, sample_points,ID = FALSE, xy = TRUE)
+  aspect_sample <- terra::extract(dnbr, sample_points,ID = FALSE, xy = TRUE)
+  
+  
   # Load NDVI and NDMI time series at points 
   df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample)
   df_ndvi <- read_hls_data_frames("NDVI",UTM_TILE_ID,year,sample_points, dnbr_sample)
@@ -315,7 +348,8 @@ if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
     summarise(DailyMeanNDMI = mean(NDMI, na.rm = TRUE),
               DailyMeanNDVI = mean(NDVI, na.rm = TRUE),
               dNBR = first(dNBR),
-              burn_date = first(burn_date))
+              burn_date = first(burn_date),
+              descals_burn_class = first(descals_burn_class))
   
   # get nr. of valid observations
   valid_counts_by_id <- df_daily_spectral_index %>%
