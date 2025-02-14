@@ -90,13 +90,16 @@ print("Finding DEM tiles overlapping with fire perimeters.")
 tile_indices = dem_tiles_intersect.supertile.unique()
 
 # Write tile index list to file
-np.savetxt(os.path.join(DATA_FOLDER,"/tables/ArcticDEM_tileid_file.txt"),
-               tile_indices,fmt="%s")
+fname_tile_list = os.path.join(DATA_FOLDER,"tables/ArcticDEM_tileid_file.txt")
+with open(fname_tile_list,"w") as outfile:
+  outfile.write('\n'.join(str(i) for i in tile_indices))
 
-
-tile_indices
-
-for tile_index in tile_indices[:2]:
+# Read tile list file
+with open(fname_tile_list, "r") as tile_file:
+    # lines = tile_file.readlines()
+    tile_indices_fromfile = [line.replace("\n","") for line in tile_file]
+  
+for tile_index in tile_indices_fromfile[:2]:
   print("Downloading ArcticDEM data for tile:", tile_index)
   download_and_extract_arcticdem(tile_index,
                                  output_dir = "~/scratch/raster/arcticDEM")
