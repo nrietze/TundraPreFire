@@ -151,6 +151,10 @@ dnbr <- rast(
 fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
+
+# Load table of ArcticDEM tiles for each fire perimeter
+dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv"))
+
 TEST_ID <- 14211 # fire ID for part of the large fire scar
 
 selected_fire_perimeter <- fire_perimeters %>% 
@@ -182,6 +186,38 @@ if (crs(descals_rast_bin) != crs(selected_fire_perimeter)){
                               crs(selected_fire_perimeter),
                               method = "near")
 }
+
+# Load DEM tiles for this fire perimeter
+dem_tiles <- dem_lut %>% 
+  filter(fireid ==TEST_ID) %>% 
+  mutate(filename = paste0(dem_id,"_dem.tif")) %>% 
+  pull(filename)
+
+dem_list <- lapply(paste0("~/scratch/raster/arcticDEM/",dem_tiles), rast)
+
+selected_fire_perimeter_stereo <- project(selected_fire_perimeter,crs(dem_list[[1]])) %>% 
+  buffer(1000)
+
+cropped_dems <- lapply(dem_list,function(x) crop(x,ext(selected_fire_perimeter_stereo)))
+
+# Mosaic DEMS
+rsrc <- sprc(cropped_dems)
+dem_mos <- mosaic(rsrc)
+
+# Resample to 30m HLS UTM
+raster_grid_template <- rast(dem_mos)
+res(raster_grid_template) <- 30
+
+# Resample to 30m resolution using bilinear interpolation
+dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") %>% 
+  project(crs(selected_fire_perimeter))
+names(dem_30m) <- 'elevation'
+
+# export resampled DEM
+fname_dem_out <- paste0("~/data/raster/arcticDEM/",
+                        selected_fire_perimeter$fireid,
+                        "_dem_30m.tif")
+writeRaster(dem_30m,filename = fname_dem_out,overwrite = T)
 
 # Buffer the selected fire perimeter
 fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
@@ -322,12 +358,6 @@ if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
   dnbr_sample <- terra::extract(dnbr, sample_points,
                                 ID = FALSE, xy = TRUE)
   
-  # Extract topography at random points 
-  elevation_sample <- terra::extract(dnbr, sample_points,ID = FALSE, xy = TRUE)
-  slope_sample <- terra::extract(dnbr, sample_points,ID = FALSE, xy = TRUE)
-  aspect_sample <- terra::extract(dnbr, sample_points,ID = FALSE, xy = TRUE)
-  
-  
   # Load NDVI and NDMI time series at points 
   df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample)
   df_ndvi <- read_hls_data_frames("NDVI",UTM_TILE_ID,year,sample_points, dnbr_sample)
@@ -369,6 +399,36 @@ if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
       burn_date = ymd_hms(burn_date),
       BeforeBurnDate = date < burn_date
     )
+  
+  # Extract topography at random points 
+  elevation_sample <- terra::extract(dem_30m, sample_points, bind = TRUE) %>% 
+    as.data.frame() %>% select(c(ObservationID,elevation))
+  
+  # Slope
+  slope <- terrain(dem_30m,'slope')
+  slope_sample <- terra::extract(slope,sample_points, bind = TRUE) %>% 
+    as.data.frame() %>% select(c(ObservationID,slope))
+  
+  # Aspect
+  aspect <- terrain(dem_30m,'aspect')
+  northness <- cos(aspect * pi/180)
+  names(northness) <- 'northness'
+  
+  eastness <- sin(aspect * pi/180)
+  names(eastness) <- 'eastness'
+  
+  northness_sample <- terra::extract(northness, sample_points, bind = TRUE) %>% 
+    as.data.frame() %>% select(c(ObservationID,northness))
+  eastness_sample <- terra::extract(eastness, sample_points, bind = TRUE) %>% 
+    as.data.frame() %>% select(c(ObservationID,eastness))
+  
+  # combine all DEM data
+  df_list <- list(elevation_sample, slope_sample, northness_sample,eastness_sample)
+  
+  # merge all data frames in list
+  dem_sample <- df_list %>% reduce(full_join, by='ObservationID')
+  
+  df_filtered <- full_join(df_filtered, dem_sample,by = "ObservationID")
   
   # Merge with LST data
   df_filtered <- df_filtered %>% 

@@ -351,6 +351,7 @@ df_filtered %>%
                    color = BeforeBurnDate),alpha = .2) +
     labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
          title = "Lowest severity top left to highest bottom right") +
+    geom_hline(yintercept = 0, linetype = "solid", color = "black") +
     geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
     facet_wrap(~ObservationID) +
     theme_cowplot()
@@ -746,7 +747,7 @@ ggplot(pred_before_burn) +
   theme_cowplot()
 ```
 
-
+## a. Spectral index
 ```{r}
 # Restructured function to return vector of predictions
 model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
@@ -789,14 +790,8 @@ ndmi_smooth <- df_filtered %>%
 
 
 # Merge dataframes
-data <- suppressMessages(df_filtered %>%
-                           # filter(ObservationID %in% rand_id) %>% 
-                           select(ObservationID,dNBR,burn_date, descals_burn_class) %>% 
-                           group_by(ObservationID) %>% 
-                           unique() %>% 
-                           ungroup() %>% 
-                           right_join(ndmi_smooth, by = "ObservationID")
-                         ) %>% 
+data_ndmi <- df_filtered %>% 
+  right_join(ndmi_smooth, by = "ObservationID") %>% 
   mutate(descals_burn_class = factor(descals_burn_class,labels = c("unburned","burned")))
 
 ```
@@ -812,9 +807,16 @@ ggplot(data,aes(x = d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
        color = "Burn class (Descals et al., 2022)") +
   theme_cowplot()
 
-ggsave2("figures/7d_prefireNDMI_vs_dNBR.png",
-        bg = "white",width = 10, height = 8)
+# ggsave2("figures/7d_prefireNDMI_vs_dNBR.png",
+#         bg = "white",width = 10, height = 8)
 ```
+```{r}
+ggplot(data,aes(x = d_prefire_7,y = dNBR)) +
+  geom_point(aes(color = elevation),alpha = .2) +
+  theme_cowplot()
+```
+
+
 It looks like there are two groups in this point cloud.
 
 We could check with a quantile regression if it captures the different behaviors
@@ -822,12 +824,16 @@ We could check with a quantile regression if it captures the different behaviors
 q10 <- seq(0.05, 0.95, by = 0.1)
 
 # Plot time-integrated NDMI 7 days before fire vs. dNBR
-ggplot(data,aes(x = d_prefire_7 ,y = dNBR)) +
-  geom_point(alpha = .2) +
-  geom_quantile(quantiles  = q10) +
+ggplot(data_reduced,aes(x = d_prefire_7 ,y = dNBR)) +
+  geom_point(aes(color = descals_burn_class),alpha = .2) +
+  # geom_quantile(quantiles  = q10) +
+  ylim(c(-400,800)) +
   labs(x = sprintf("Cumulative %s (sum over 1 to 7 days pre-fire)",index_name),
        y = "dNBR") +
   theme_cowplot()
+
+ggsave2("figures/7d_prefireNDMI_vs_dNBR_noline.png",
+        bg = "white",width = 10, height = 8)
 ```
 Now, let's see which time before the fire has the highest R2:
 
@@ -916,26 +922,20 @@ model_LST_polynomial <- function(x,y,full_data) {
 
 # Apply spline to each time series point
 lst_smooth <- df_filtered %>%
+  filter(!is.na(doy)) %>% 
   group_by(ObservationID) %>% 
   group_modify(~model_LST_polynomial(.x$doy,.x$LST,.x))
 
 # Merge dataframes
-data <- suppressMessages(df_filtered %>%
-                           # filter(ObservationID %in% rand_id) %>% 
-                           select(ObservationID,dNBR,burn_date, descals_burn_class) %>% 
-                           group_by(ObservationID) %>% 
-                           unique() %>% 
-                           ungroup() %>% 
-                           right_join(lst_smooth, by = "ObservationID")
-                         ) %>% 
+data_lst <- df_filtered %>% 
+  right_join(lst_smooth, by = "ObservationID") %>% 
   mutate(descals_burn_class = factor(descals_burn_class,labels = c("unburned","burned")))
-
 ```
 
 Scatter plot cumulative LST
 ```{r}
 # Plot time-integrated LST 7 days before fire vs. dNBR
-ggplot(data, aes(x = cumsum_lst_d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
+ggplot(data_lst, aes(x = cumsum_lst_d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
   geom_point(alpha = .2) +
   geom_smooth(method='lm') +
   labs(x = "Cumulative LST (sum over 1 to 7 days pre-fire)",
@@ -956,3 +956,44 @@ ggplot(data, aes(x = lst_pred_d_prefire_7 ,y = dNBR, color = descals_burn_class)
   facet_wrap(~descals_burn_class) +
   theme_cowplot()
 ```
+## c. full dataframe
+
+```{r}
+data_all <- df_filtered %>% 
+  right_join(lst_smooth, by = "ObservationID") %>% 
+  right_join(ndmi_smooth,by = "ObservationID") %>%
+  mutate(descals_burn_class = factor(descals_burn_class,labels = c("unburned","burned")))
+
+data_reduced <- data_all %>% 
+  select(-c(X,date,BeforeBurnDate,doy,
+            DailyMeanNDMI,DailyMeanNDVI,LST)) %>%
+  distinct()
+```
+
+Fit model for entire data
+
+```{r}
+# Linear model
+lm_single_day <- lm(dNBR ~ elevation + slope + northness + eastness + d_prefire_7 + lst_pred_d_prefire_7,
+                    data = data_reduced)
+summary(lm_single_day)
+
+# For median (50th percentile) regression
+qr_median <- rq(dNBR ~ elevation + slope + northness + eastness + d_prefire_7 + lst_pred_d_prefire_7,
+                data = data_reduced, tau = 0.5)
+
+# For 25th and 75th percentile regressions
+qr_25 <- rq(dNBR ~ elevation + slope + northness + eastness + d_prefire_7 + lst_pred_d_prefire_7,
+            data = data_reduced, tau = 0.25)
+qr_75 <- rq(dNBR ~ elevation + slope + northness + eastness + d_prefire_7 + lst_pred_d_prefire_7,
+            data = data_reduced, tau = 0.75)
+
+# View summaries
+summary(qr_median)
+summary(qr_25)
+summary(qr_75)
+```
+```{r}
+
+```
+
