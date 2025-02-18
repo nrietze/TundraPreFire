@@ -1,12 +1,4 @@
-#!/bin/bash
-#SBATCH --time=0-00:02:00   ## days-hours:minutes:seconds
-#SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
-#SBATCH --nodes=1
-#SBATCH --output=/logs/job_%j.out
-#SBATCH --ntasks=1
-#SBATCH --mem-per-cpu=3850
-#SBATCH --array=0-19
-
+# ...
 module load mamba
 source activate lpdaac_vitals
 
@@ -34,7 +26,14 @@ END=$(( START + CHUNK_SIZE - 1 ))
 # Extract lines for this task
 sed -n "${START},${END}p" "$UTM_TILEID_FILE" > task_${SLURM_ARRAY_TASK_ID}.txt
 
-# Execute HLS preprocessing script with the split UTM tile id file
-python code/data_processing/HLS_preprocessing.py task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
+
+# Test slurm job
+SLURM_ARRAY_TASK_ID=$1
+echo python \
+    code/data_processing/HLS_preprocessing.py \
+    task_${SLURM_ARRAY_TASK_ID}.txt \
+    "$metrics"
+    --threads=$SLURM_CPUS_PER_TASK \
+    --output=/logs/slurm_job_test.out
 
 echo 'finished'
