@@ -13,6 +13,7 @@ Date: 15.01.2025 (last update of this docstring)
 #%% Load packages
 import os
 import sys
+import ast
 import re
 from glob import glob
 import time
@@ -541,6 +542,10 @@ if __name__ == "__main__":
         lambda row: datetime.date(row['ted_year'], row['ted_month'], row['ted_day']), axis=1)
 
     # Define bands/indices to process
+    band_index = ast.literal_eval(sys.argv[1])
+    
+    print("Band metrcis parsed from slurm:",band_index)
+    
     band_index = ["NDVI","NDMI"]
 
     # Overwrite existing tiles?

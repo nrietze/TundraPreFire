@@ -15,6 +15,8 @@ cd ~/home/nrietz/TundraPreFire/
 
 UTM_TILEID_FILE="code/data_processing/tile.txt"
 
+metrics="["NDVI","NDMI"]"
+
 # Get total number of lines
 NUM_LINES=$(wc -l < "$UTM_TILEID_FILE")
 
@@ -32,6 +34,6 @@ END=$(( START + CHUNK_SIZE - 1 ))
 sed -n "${START},${END}p" "$UTM_TILEID_FILE" > task_${SLURM_ARRAY_TASK_ID}.txt
 
 # Execute HLS preprocessing script with the split UTM tile id file
-python code/data_processing/HLS_preprocessing.py task_${SLURM_ARRAY_TASK_ID}.txt
+python code/data_processing/HLS_preprocessing.py task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
 
 echo 'finished'
