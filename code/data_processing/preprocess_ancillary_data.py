@@ -2,6 +2,7 @@
 import os
 from glob import glob
 from tqdm import tqdm
+from osgeo import gdal
 import rasterio as rio
 from shapely.geometry import Point
 import geopandas as gpd
@@ -41,18 +42,9 @@ DATA_FOLDER = 'data/' # on local machine
 fire_perimeters_2020 = gpd.read_file(os.path.join(DATA_FOLDER,
                                                   "feature_layers/fire_atlas/final_viirs2020.gpkg"))
 
-# test region of interest
-roi = gpd.read_file(os.path.join(DATA_FOLDER,
-                                 "feature_layers/roi.geojson"))
-
 # Load MGRS tile centroids to find msot suitable HLS tile
 mgrs_tile_centroids = gpd.read_file(os.path.join(DATA_FOLDER,
                                                  "feature_layers/MGRS_centroids.geojson"))
-
-# Intersect
-fire_within_roi = gpd.overlay(fire_perimeters_2020, roi, how='intersection')
-fire_within_roi.head()
-
 # CAVM outline
 cavm_outline = gpd.read_file(os.path.join(DATA_FOLDER,
                                           "feature_layers/cavm_outline.gpkg"))
@@ -73,8 +65,8 @@ else:
 
     fire_perimeters = []
     
-    # Grab all VIIRS perimeters and add to list
-    for gpkg_file in gpkg_files:
+    # Grab all VIIRS perimeters and add to list (only perimeters since 2016, e.g., 4:)
+    for gpkg_file in gpkg_files[4:]:
         gdf = gpd.read_file(gpkg_file)
         fire_perimeters.append(gdf)
     
@@ -109,24 +101,17 @@ else:
     fire_within_cavm["opt_UTM_tile"] = fire_within_cavm.apply(lambda row :
         find_optimal_utm_tile(mgrs_tile_centroids, row), axis=1)
     
-    # export filtered fire perimeters to file ( exclude "centroids" column from export)
-    fire_within_cavm.drop(columns=["centroid"]).to_file(fname_perims_in_cavm)
+    # Reset index
+    fire_within_cavm = fire_within_cavm.reset_index(drop=True)
     
-    # Export unique tile names as a txt file for HLS dowloading
-    unique_utm_tile_ids = fire_within_cavm.opt_UTM_tile.unique()
-    np.savetxt("code/data_processing/tileid_file.txt",
-               unique_utm_tile_ids,fmt="%s")
+# Create final format of look-up-table
+final_lut = fire_within_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim', 
+                                             'duration','lcc_final', 'geometry',
+                                             'centroid'])
+final_lut[["descals_file"]] = "n"
 
-
-# %% 2. Generate LUT for descals burned area tiles
-RASTER_DIR = "data/raster/burned_area_descals/"
-
-tiff_list = glob(RASTER_DIR + "*.tif")
-
-descals_lut = pd.DataFrame({"descals_file" : np.repeat("n",len(merged_fire_perimeters)),
-                            "fireid" : np.zeros(len(merged_fire_perimeters),dtype = int),
-                            "UniqueID" : np.zeros(len(merged_fire_perimeters),dtype = int)
-                            })
+# %% 2. Add Descals burned area tiles to final look-up-table
+tiff_list = glob(os.path.join(DATA_FOLDER,"raster/burned_area_descals/*.tif"))
 
 # Get centroids of descals tiles and format to geopandas data series
 coordinates = [rio.open(file).lnglat() for file in tiff_list]
@@ -143,21 +128,21 @@ descals_tile_centroids = gpd.GeoDataFrame(
     }
 )
 
-# Assign optimal UTM tile name to the fire perimeter (only in study region, and in WGS84)
-for row in tqdm(merged_fire_perimeters.iterrows(), total = len(merged_fire_perimeters)):
+# Match Descals burned area tiles and ArcticDEM files to fire perimeters 
+for row in tqdm(fire_within_cavm.iterrows(), total = len(fire_within_cavm)):
     i = row[0]
     vect = row[1]
-    
-    # Get attributes of that fire perimeter
+
+    # Calculate fire perimeter centroid
     fire_centroid = vect.geometry.centroid
-        
+    
+    # Find nearest Descals tile centroid to fire perimeter (in EPSG:4326)
     sindex = descals_tile_centroids.geometry.sindex.nearest(fire_centroid)
     
      # select that nearest tile
     nearest_descals_tile_centroid = descals_tile_centroids.iloc[sindex[1,:]]
     
-    descals_lut.loc[descals_lut.index[i], 'descals_file'] = os.path.basename(nearest_descals_tile_centroid.filename.item())
-    descals_lut.loc[descals_lut.index[i], 'fireid'] = vect.fireid
-    descals_lut.loc[descals_lut.index[i], 'UniqueID'] = vect.UniqueID
+    final_lut.loc[final_lut.fireid == vect.fireid, 'descals_file'] = os.path.basename(nearest_descals_tile_centroid.filename.item())
     
-descals_lut.to_csv(os.path.join(DATA_FOLDER,"tables/descals_tile_LUT.csv"))   
+# Export dataframe as csv
+final_lut.to_csv(os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"))   

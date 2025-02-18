@@ -9,6 +9,7 @@ import tarfile
 from glob import glob
 import multiprocessing
 from joblib import Parallel, delayed
+import re
 
 #%% 0. configure functions
 def find_optimal_dem_tile(dem_tile_centroids: gpd.GeoDataFrame,
@@ -70,46 +71,54 @@ def download_and_extract_arcticdem(url, output_dir="data/raster/arcticDEM"):
             except tarfile.ReadError as e:
                  print(f"Error extracting {filepath}: {e}")
 
+# Function to extract and rename the s3 url in the ArcticDEM LUT
+def transform_url(url):
+    match = re.search(r'external/(.+)', url)
+    return f"https://{match.group(1).replace('.json', '_dem.tif')}" if match else None
+
 #%% 1. Load data
 DATA_FOLDER = '~/data/' # on sciencecluster
-# DATA_FOLDER = 'data/' # on local machine
+DATA_FOLDER = 'data/' # on local machine
 
 DOWNLOAD_DATA = True
 
 # Load fire perimeters
-fire_perimeters = gpd.read_file(os.path.join(DATA_FOLDER,
-                                            "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"))
+fire_perimeters = gpd.read_file(
+    os.path.join(DATA_FOLDER,
+                 "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
+    )
 
-fname_tile_list = "data/tables/ArcticDEM_tileid_file.txt"
+fname_dem_lut = os.path.join(DATA_FOLDER,"tables/ArcticDEM_LUT.csv")
 
-if not os.path.exists(fname_tile_list):
+if not os.path.exists(fname_dem_lut):
     print("Matching ArcticDEM tiles with fire perimeters")
   
     # ArcticDEM mosaic tile index
-    index_features = gpd.read_file(os.path.join(DATA_FOLDER,
-                                                "feature_layers/ArcticDEM_Mosaic_Index_v4_1_gpkg.gpkg"))
+    arctic_dem_tile_index = gpd.read_file(
+        os.path.join(DATA_FOLDER,
+                     "feature_layers/ArcticDEM_Mosaic_Index_v4_1_gpkg.gpkg")
+        )
 
-    # reproject to ArcticDEM tile crs
-    fire_perimeters_stereo = fire_perimeters.to_crs(index_features.crs)
-        
+    # reproject to ArcticDEM tile crs (Polar Stereographic)
+    fire_perimeters_stereo = fire_perimeters.to_crs(arctic_dem_tile_index.crs)
+       
     # perform spatial intersect of centroids with CAVM
-    dem_tiles_intersect = gpd.overlay(index_features,fire_perimeters_stereo,how='intersection')
+    dem_tiles_intersect = gpd.overlay(arctic_dem_tile_index,fire_perimeters_stereo,
+                                    how='intersection')
+
+    # Selecting only neccessary columns for export to LUT csv
+    dem_tile_df = dem_tiles_intersect[["dem_id","tile","supertile",
+                                       "s3url","fileurl","fireid","UniqueID"]]
 
     # Export dataframe as csv
-    dem_tiles_intersect.to_csv("data/tables/dem_fire_perim_intersect.csv")
-
-    # get tile index list for download
-    print("Finding DEM tiles overlapping with fire perimeters.")
-    tile_indices = dem_tiles_intersect.supertile.unique()
-
-    # Write tile index list to file
-    with open(fname_tile_list,"w") as outfile:
-    outfile.write('\n'.join(str(i) for i in tile_indices))
+    dem_tile_df.to_csv(fname_dem_lut)
 
 if DOWNLOAD_DATA:
     # Read tile list file
-    tile_dataframe = pd.read_csv("data/tables/dem_fire_perim_intersect.csv")
+    dem_tile_df = pd.read_csv(fname_dem_lut,index_col=0)
 
+    s3_urls = dem_tile_df["s3url"].apply(transform_url)
+    
     # Download ArcticDEM rasters
     num_workers = (
             int(os.environ.get("SLURM_CPUS_PER_TASK"))
@@ -118,12 +127,7 @@ if DOWNLOAD_DATA:
         )
 
     multiprocessing.set_start_method('spawn')
-        
+
     Parallel(n_jobs=num_workers, backend='loky')(
-        delayed(download_and_extract_arcticdem)(url,output_dir = "/scratch/nrietz/raster/arcticDEM") for url in tile_dataframe.fileurl)
-
-# %% 2. Prepare DEM data for analysis
-dem_files = glob(os.path.join(DATA_FOLDER,"raster/arcticDEM/*dem.tif"))
-fname_out = dem_files[1].replace("dem","dem_30m")
-
-gdal.Warp(fname_out, dem_files[1], xRes=30, yRes=30, resampleAlg="cubicspline")
+        delayed(download_and_extract_arcticdem)(url,
+                                                output_dir = "/scratch/nrietz/raster/arcticDEM") for url in s3_urls)
