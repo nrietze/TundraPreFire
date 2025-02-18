@@ -105,7 +105,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
   
   df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
     select(-1) %>% 
-    mutate(dNBR = dnbr_sample$dNBR) %>% 
+    mutate(burn_severity = dnbr_sample$burn_severity) %>% 
     as_tibble() %>% 
     mutate(burn_date = sample_points$burn_date,
            descals_burn_class = sample_points$descals_burned)
@@ -119,7 +119,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
   df_long <- df %>%
     mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
     gather(key = "Time", value = index_name, 
-           -c(ObservationID,dNBR,burn_date,descals_burn_class)) %>% 
+           -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
     mutate(Time = as.POSIXct(Time, format = fmt)) 
   
   return(df_long)
@@ -130,6 +130,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
 UTM_TILE_ID <- "54WXE"
 year <- 2020
 severity_index <- "dNBR"
+TEST_ID <- 14211 # fire ID for part of the large fire scar
 
 # Set name of spectral index to extract data for
 index_name <- "NDMI"
@@ -143,9 +144,9 @@ OVERWRITE_DATA <- TRUE
 # Output directory for sample tables
 TABLE_DIR <- "~/data/tables/"
 
-dnbr <- rast(
+rast_burn_severity <- rast(
   sprintf("~/data/raster/hls/severity_rasters/%s_%s_%s.tif",
-          UTM_TILE_ID, year,severity_index)) * 1000
+          UTM_TILE_ID, year,severity_index))
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
@@ -155,11 +156,9 @@ fire_perimeters <- vect(
 # Load table of ArcticDEM tiles for each fire perimeter
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv"))
 
-TEST_ID <- 14211 # fire ID for part of the large fire scar
-
 selected_fire_perimeter <- fire_perimeters %>% 
   filter(fireid  == TEST_ID) %>%
-  project(crs(dnbr))
+  project(crs(rast_burn_severity))
 
 # Load descals burned area raster for the selected fire
 descals_lut <- read.csv("data/tables/descals_tile_LUT.csv")
@@ -222,7 +221,7 @@ writeRaster(dem_30m,filename = fname_dem_out,overwrite = T)
 # Buffer the selected fire perimeter
 fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
 
-dnbr_in_perimeter <- dnbr %>% 
+dnbr_in_perimeter <- rast_burn_severity %>% 
   mask(fire_perimeter_buffered, updatevalue = NA) %>% 
   crop(fire_perimeter_buffered)
 
@@ -233,7 +232,7 @@ fname_sample_points <- "~/data/feature_layers/sample_points.gpkg"
 if (!file.exists(fname_sample_points)){
   print("Creating random point sample... \n")
   
-  # Set dNBR bin size for sampling (dNBR * 1000)
+  # Set dNBR bin size for sampling (20 if dNBR * 1000)
   binwidth <- 20
   
   # get bins for the raster
@@ -271,7 +270,7 @@ print("Random point GPKG already exists, continue. \n")
 
 # Load sample points with burn dates
 sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
-  project(crs(dnbr)) %>% 
+  project(crs(rast_burn_severity)) %>% 
   mutate(ObservationID = 1:nrow(.))
 
 ## a. HLS spectral indices ----
@@ -316,7 +315,7 @@ if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
   lst_time_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIME)
   
   # Concatenate as single raster 
-  lst <- rast(lst_list) %>% project(crs(dnbr))
+  lst <- rast(lst_list) %>% project(crs(rast_burn_severity))
   
   # Extract dates and format to date
   lst_dates <- lapply(lst_time_list,get_ls_datetime)
@@ -355,7 +354,7 @@ if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
   print("Filtering and formatting raster data... \n")
   
   # Extract dNBR at random points 
-  dnbr_sample <- terra::extract(dnbr, sample_points,
+  dnbr_sample <- terra::extract(rast_burn_severity, sample_points,
                                 ID = FALSE, xy = TRUE)
   
   # Load NDVI and NDMI time series at points 
@@ -377,7 +376,7 @@ if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
     group_by(date, ObservationID) %>% 
     summarise(DailyMeanNDMI = mean(NDMI, na.rm = TRUE),
               DailyMeanNDVI = mean(NDVI, na.rm = TRUE),
-              dNBR = first(dNBR),
+              burn_severity = first(rast_burn_severity),
               burn_date = first(burn_date),
               descals_burn_class = first(descals_burn_class))
   
