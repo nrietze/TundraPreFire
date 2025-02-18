@@ -1,6 +1,6 @@
 import os
 from glob import glob
-
+import platform
 import geopandas as gpd
 import pandas as pd
 import datetime
@@ -71,7 +71,12 @@ def spatial_join_multiple_files(random_points: gpd.GeoDataFrame,
     return final_result
 
 #%% 1. Load data
-PATH_VIIRS_PERIMETERS = "../data/feature_layers/fire_atlas/"
+if platform.system() == "Windows":
+    DATA_FOLDER = 'data/' # on local machine
+else:
+    DATA_FOLDER = '~/data/' # on sciencecluster
+
+PATH_VIIRS_PERIMETERS = os.path.join(DATA_FOLDER,"data/feature_layers/fire_atlas/")
 
 # Load VIIRS perimeters in Siberian tundra
 FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,
@@ -79,15 +84,16 @@ FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,
 
 if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
     print("CAVM Fire perimeter file exists, loading.")
-    merged_fire_perimeters = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
+    fire_perims_in_cavm = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
 else:
     print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
-    pass
 
 TEST_ID = 14211 # fire ID for part of the large fire scar
 
-# Load the random points file for the currently selected fire sacr
-random_points = gpd.read_file("../data/feature_layers/sample_points.gpkg")
+# Load the random points file for the currently selected fire scar
+random_points = gpd.read_file(
+    os.path.join(DATA_FOLDER,"data/feature_layers/sample_points.gpkg")
+    )
 
 # %%
 # Load list of sub-daily perimeters and assign datetime
@@ -98,7 +104,7 @@ df_viirs_sub_daily['datetime'] = [extract_datetime(FN) for FN in FLIST_VIIRS_SUB
 
 df_viirs_sub_daily = df_viirs_sub_daily.sort_values("datetime")
 
-perimeter = merged_fire_perimeters.loc[merged_fire_perimeters.fireid==TEST_ID]
+perimeter = fire_perims_in_cavm.loc[fire_perims_in_cavm.fireid==TEST_ID]
 
 start_date = datetime.datetime(perimeter.tst_year.item(),
                                perimeter.tst_month.item(),
@@ -133,5 +139,8 @@ random_points_sjoin['burn_date'] = pd.to_datetime(
                     'ted_month': 'month', 
                     'ted_day': 'day'}))
 random_points_sjoin['burn_doy'] = random_points_sjoin['burn_date'].dt.dayofyear
+
 # export data
-random_points_sjoin.to_file("../data/feature_layers/sample_points_burn_date.gpkg")
+random_points_sjoin.to_file(
+    os.path.join(DATA_FOLDER,"feature_layers/sample_points_burn_date.gpkg")
+    )

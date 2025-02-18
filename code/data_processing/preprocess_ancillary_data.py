@@ -83,24 +83,24 @@ fire_centroids = gpd.GeoDataFrame(fires_east[['UniqueID', 'centroid']],
 fire_centroids = fire_centroids.to_crs(cavm_outline.crs)
 
 # perform spatial intersect of centroids with CAVM
-centroids_within_cavm = gpd.overlay(fire_centroids, 
+centroids_in_cavm = gpd.overlay(fire_centroids, 
                                     cavm_outline, 
                                     how='intersection')
 
 # select perimeters in CAVM zone
-fire_within_cavm = fires_east[fires_east['UniqueID'].
-                                isin(centroids_within_cavm.UniqueID.values)]
+fire_perims_in_cavm = fires_east[fires_east['UniqueID'].
+                                isin(centroids_in_cavm.UniqueID.values)]
 
 
 # Assign optimal UTM tile name to the fire perimeter
-fire_within_cavm["opt_UTM_tile"] = fire_within_cavm.apply(lambda row :
+fire_perims_in_cavm["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
     find_optimal_utm_tile(mgrs_tile_centroids, row), axis=1)
 
 # Reset index
-fire_within_cavm = fire_within_cavm.reset_index(drop=True)
+fire_perims_in_cavm = fire_perims_in_cavm.reset_index(drop=True)
     
 # Create final format of look-up-table
-final_lut = fire_within_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim', 
+final_lut = fire_perims_in_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim', 
                                              'duration','lcc_final', 'geometry',
                                              'centroid'])
 final_lut[["descals_file"]] = "n"
@@ -123,8 +123,8 @@ descals_tile_centroids = gpd.GeoDataFrame(
     }
 )
 
-# Match Descals burned area tiles and ArcticDEM files to fire perimeters 
-for row in tqdm(fire_within_cavm.iterrows(), total = len(fire_within_cavm)):
+# Match Descals burned area tiles and ArcticDEM files to fire perimeters
+for row in tqdm(fire_perims_in_cavm.iterrows(), total = len(fire_perims_in_cavm)):
     i = row[0]
     vect = row[1]
 

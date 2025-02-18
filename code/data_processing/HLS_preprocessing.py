@@ -10,17 +10,20 @@ Author: Nils Rietze (nils.rietze@uzh.ch), github.com/nrietze
 Date: 15.01.2025 (last update of this docstring)
 """
 
-# Load packages
+#%% Load packages
 import os
+import sys
 import re
 from glob import glob
 import time
 import datetime
 import multiprocessing
+import platform
 import numpy as np
 import dask.array as da
 from joblib import Parallel, delayed
-
+import pandas as pd
+from dateutil.relativedelta import relativedelta
 from osgeo import gdal
 import xarray as xr
 from xrspatial import multispectral
@@ -519,27 +522,23 @@ if __name__ == "__main__":
     gdal.SetConfigOption('GDAL_HTTP_MAX_RETRY', '10')
     gdal.SetConfigOption('GDAL_HTTP_RETRY_DELAY', '0.5')
 
-    # Load AOIs
-    # aois = gp.read_file("data/feature_layers/roi.geojson")
-
-    # fire_perimeters_2020 = gp.read_file("data/feature_layers/fire_atlas/final_viirs2020.gpkg")
-
-    # # Intersect aoi & perimeter
-    # fire_within_roi = gp.overlay(fire_perimeters_2020, aois,
-    #                             how='intersection')
-
-    # convert end day of fire to date
-    # fire_within_roi['end_date'] = fire_within_roi.apply(
-    #     lambda row: datetime.date(int(row['ted_year']), 
-    #                             int(row['ted_month']), 
-    #                             int(row['ted_day'])), axis=1)
-
-    # END_OF_FIRE = fire_within_roi['end_date'].max()
-
-    # bbox = tuple(list(fire_within_roi.total_bounds))
-    bbox = (144.4001779629389, 71.24588582272926,
-            146.16765743760948, 71.6168891179392)
-    print("AOI loaded.")
+    if platform.system() == "Windows":
+        DATA_FOLDER = 'data/' # on local machine
+        HLS_PARENT_PATH = "data/raster/hls/test"
+    else:
+        DATA_FOLDER = '~/data/' # on sciencecluster
+        HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/" # Set original data paths
+    
+    # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
+    processing_lut = pd.read_csv(
+        os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"),
+        index_col=0)
+    
+    # Create date objects
+    processing_lut['tst_date'] = processing_lut.apply(
+        lambda row: datetime.date(row['tst_year'], row['tst_month'], row['tst_day']), axis=1)
+    processing_lut['ted_date'] = processing_lut.apply(
+        lambda row: datetime.date(row['ted_year'], row['ted_month'], row['ted_day']), axis=1)
 
     # Define bands/indices to process
     band_index = ["NDVI","NDMI"]
@@ -550,61 +549,92 @@ if __name__ == "__main__":
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
 
-    # Set original data paths
-    HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/"
-
     hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
 
     # Filter HLS file list for granules in the selected UTM tile
-    OPTIMAL_TILE_NAME = "54WXE"
+    UTM_TILE_LIST = sys.argv[1] # Set UTM tile names from split input list
+    print("Input file data from SLURM:", sys.argv[1])
     
-    if OPTIMAL_TILE_NAME:
-        hls_granules_paths = [
-            sublist for sublist in hls_granules_paths if sublist and OPTIMAL_TILE_NAME in sublist[0]
-            ]
+    # UTM_TILE_LIST = ["54WXE","53WMU"] # for testing
+    
+    # Execute preprocessing for each UTM tile
+    # ----
+    for UTM_TILE_NAME in UTM_TILE_LIST[:2]:
+        print("Preprocessing HLS data for UTM tile: ", UTM_TILE_NAME)
         
-    if any(pattern in band_index for pattern in ["NBR","GEMI"]):
-        # Define time search window
-        # START_DATE = "2020-05-01T00:00:00" # full growing season
-        # START_DATE = "2020-09-10T00:00:00"
-        START_DATE = "2019-09-12T00:00:00"
-
-        # END_DATE = "2020-10-15T23:59:59" # full growing season
-        # END_DATE = "2020-09-12T23:59:59"
-        END_DATE = "2019-09-13T23:59:59"
-
-        hls_granules_paths = search_files_by_doy_range(hls_granules_paths, START_DATE, END_DATE)
-
-    print(f"{len(hls_granules_paths)} granules found to process.")
-    
-    with open("matching_HLS_granules.txt", "w") as f:
-        for sublist in hls_granules_paths:
-            if sublist:  # Ensure the sublist is not empty
-                f.write(sublist[0] + "\n")
+        if UTM_TILE_NAME:
+            hls_granules_paths = [
+                sublist for sublist in hls_granules_paths if sublist and UTM_TILE_NAME in sublist[0]
+                ]
+        
+        # Execute preprocessing for each year
+        # ----
+        
+        # Filter fire perimeters that use this UTM tile
+        fire_perimeters_in_utm = processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_NAME]
+        
+        # extract years of burning (one UTM tile can have multiple years)
+        utm_years = fire_perimeters_in_utm.tst_year.unique()
+        
+        # Loop through each year
+        for year in utm_years:
             
-    # define bits to mask out
-    """
-    7-6 = aerosols
-    5 = water
-    4 = snow/ice
-    3 = cloud shadow
-    2 = cloud/shadow adjacent
-    1 = cloud
-    0 = cirrus
-    """
-    bit_nums = [0,1,2,3,4]
+            # For burn severity raster processing -
+            # Create time range from LUT to subset HLS granules temporally
+            if any(pattern in band_index for pattern in ["NBR","GEMI"]):
+                # 15 d maximum offset from end of fire to search HLS imagery
+                MAX_TIMEDELTA = 31
+                
+                # Get latest end date of fire in that year
+                latest_tile_fire_end = max(fire_perimeters_in_utm.ted_date)
+                
+                # Define time search window
+                # START_DATE = "2020-05-01T00:00:00" # full growing season
+                START_DATE_POST = latest_tile_fire_end.strftime("%Y-%m-%dT%H:%M:%S")
+                START_DATE_PRE = (latest_tile_fire_end -
+                                  pd.Timedelta(days=MAX_TIMEDELTA) -
+                                  relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    # output directory
-    OUT_FOLDER = '/data/nrietz/raster/hls/'
-    
-    num_workers = (
-        int(os.environ.get("SLURM_CPUS_PER_TASK"))
-        if os.environ.get("SLURM_CPUS_PER_TASK")
-        else os.cpu_count()
-    )
-    # num_workers = -1 # -1 = all are used, -2 all but one
+                # END_DATE = "2020-10-15T23:59:59" # full growing season
+                END_DATE_POST = (latest_tile_fire_end +
+                                 pd.Timedelta(days=MAX_TIMEDELTA)).strftime("%Y-%m-%dT%H:%M:%S")
+                END_DATE_PRE = (latest_tile_fire_end +
+                                pd.Timedelta(days=MAX_TIMEDELTA)-
+                                relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    multiprocessing.set_start_method('spawn')
-    
-    Parallel(n_jobs=num_workers, backend='loky')(
-        delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA,skip_source=None) for files in hls_granules_paths)
+                hls_granules_paths_post = search_files_by_doy_range(hls_granules_paths,
+                                                                    START_DATE_POST, END_DATE_POST)
+                hls_granules_paths_pre = search_files_by_doy_range(hls_granules_paths,
+                                                                   START_DATE_PRE, END_DATE_PRE)
+                
+                hls_granules_paths = hls_granules_paths_pre + hls_granules_paths_post
+
+            print(f"{len(hls_granules_paths)} granules found to process.")
+            
+            # define bits to mask out
+            """
+            7-6 = aerosols
+            5 = water
+            4 = snow/ice
+            3 = cloud shadow
+            2 = cloud/shadow adjacent
+            1 = cloud
+            0 = cirrus
+            """
+            bit_nums = [0,1,2,3,4]
+
+            # output directory
+            # OUT_FOLDER = '/data/nrietz/raster/hls/'
+            OUT_FOLDER = '/scratch/nrietz/raster/hls/processed/'
+            
+            num_workers = (
+                int(os.environ.get("SLURM_CPUS_PER_TASK"))
+                if os.environ.get("SLURM_CPUS_PER_TASK")
+                else os.cpu_count()
+            )
+            # num_workers = -1 # -1 = all are used, -2 all but one
+
+            multiprocessing.set_start_method('spawn')
+            
+            Parallel(n_jobs=num_workers, backend='loky')(
+                delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA,skip_source=None) for files in hls_granules_paths)
