@@ -4,7 +4,7 @@ source activate lpdaac_vitals
 
 echo 'HLS processing starting.'
 
-cd ~/home/nrietz/TundraPreFire/
+cd ~/TundraPreFire/
 
 UTM_TILEID_FILE="code/data_processing/tile.txt"
 
@@ -33,7 +33,6 @@ echo python \
     code/data_processing/HLS_preprocessing.py \
     task_${SLURM_ARRAY_TASK_ID}.txt \
     "$metrics"
-    --threads=$SLURM_CPUS_PER_TASK \
     --output=/logs/slurm_job_test.out
 
 echo 'finished'
