@@ -1,4 +1,6 @@
 # ...
+SLURM_ARRAY_TASK_ID=$1
+
 module load mamba
 source activate lpdaac_vitals
 
@@ -6,7 +8,7 @@ echo 'HLS processing starting.'
 
 cd ~/TundraPreFire/
 
-UTM_TILEID_FILE="code/data_processing/tile.txt"
+UTM_TILEID_FILE="code/data_processing/tileid_file.txt"
 
 metrics="["NDVI","NDMI"]"
 
@@ -26,13 +28,11 @@ END=$(( START + CHUNK_SIZE - 1 ))
 # Extract lines for this task
 sed -n "${START},${END}p" "$UTM_TILEID_FILE" > task_${SLURM_ARRAY_TASK_ID}.txt
 
-
 # Test slurm job
-SLURM_ARRAY_TASK_ID=$1
 echo python \
     code/data_processing/HLS_preprocessing.py \
     task_${SLURM_ARRAY_TASK_ID}.txt \
-    "$metrics"
-    --output=/logs/slurm_job_test.out
+    "$metrics" \
+    --output="logs/slurm_job_test${SLURM_ARRAY_TASK_ID}.out"
 
 echo 'finished'

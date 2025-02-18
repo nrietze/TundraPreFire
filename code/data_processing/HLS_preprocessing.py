@@ -542,11 +542,11 @@ if __name__ == "__main__":
         lambda row: datetime.date(row['ted_year'], row['ted_month'], row['ted_day']), axis=1)
 
     # Define bands/indices to process
-    band_index = ast.literal_eval(sys.argv[1])
+    band_index = ast.literal_eval(sys.argv[2])
     
     print("Band metrcis parsed from slurm:",band_index)
     
-    band_index = ["NDVI","NDMI"]
+    # band_index = ["NDVI","NDMI"]
 
     # Overwrite existing tiles?
     OVERWRITE_DATA = False
@@ -556,10 +556,12 @@ if __name__ == "__main__":
 
     hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
 
-    # Filter HLS file list for granules in the selected UTM tile
-    UTM_TILE_LIST = sys.argv[1] # Set UTM tile names from split input list
-    print("Input file data from SLURM:", sys.argv[1])
+    # Load UTM tiles
+    UTM_TILE_FILE = sys.argv[1]
     
+    with open(UTM_TILE_FILE, "r") as file:
+        UTM_TILE_LIST = [line.strip() for line in file] 
+        
     # UTM_TILE_LIST = ["54WXE","53WMU"] # for testing
     
     # Execute preprocessing for each UTM tile
