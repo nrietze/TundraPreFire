@@ -566,7 +566,7 @@ if __name__ == "__main__":
     
     # Execute preprocessing for each UTM tile
     # ----
-    for UTM_TILE_NAME in UTM_TILE_LIST[:2]:
+    for UTM_TILE_NAME in UTM_TILE_LIST:
         print("Preprocessing HLS data for UTM tile: ", UTM_TILE_NAME)
         
         if UTM_TILE_NAME:
