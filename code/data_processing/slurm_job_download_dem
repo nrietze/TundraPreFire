@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH --time=0-00:15:00   ## days-hours:minutes:seconds
+#SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
+#SBATCH --nodes=1
+#SBATCH --output=--output=~/home/$USER/scratch/logs/job_%j.out
+#SBATCH --mem-per-cpu=3850
+
+module load mamba
+source activate lpdaac_vitals
+
+echo 'ArcticDEM download starting.'
+
+cd ~/home/nrietz/TundraPreFire/
+
+python code/data_processing/ArcticDEM_processing.py
+
+echo 'finished'
