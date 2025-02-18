@@ -87,4 +87,5 @@ code/exploratory/HLS_Tutorial.html
 code/*/.ipynb_checkpoints
 data/feature_layers/fire_atlas/sub_daily/*
 data/C2L2/*
-data/raster/hls/test/*
+data/raster/hls/*
+data/feature_layers/sample_points_filtered/*
