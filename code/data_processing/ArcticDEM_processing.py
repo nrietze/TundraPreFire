@@ -98,7 +98,7 @@ if not os.path.exists(fname_dem_lut):
     # ArcticDEM mosaic tile index
     arctic_dem_tile_index = gpd.read_file(
         os.path.join(DATA_FOLDER,
-                     "feature_layers/ArcticDEM_Mosaic_Index_v4_1_gpkg.gpkg")
+                     "feature_layers/ArcticDEM_Mosaic_Index_v4_1.gpkg")
         )
 
     # reproject to ArcticDEM tile crs (Polar Stereographic)

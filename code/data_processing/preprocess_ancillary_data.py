@@ -54,56 +54,50 @@ cavm_outline = gpd.read_file(os.path.join(DATA_FOLDER,
 fname_perims_in_cavm = os.path.join(DATA_FOLDER,
                                     "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 
-# Apply spatial intersection but check if feature layer exists
-if os.path.exists(fname_perims_in_cavm):
-    print("File of fire perimeters in CAVM exists, loading.")
-    merged_fire_perimeters = gpd.read_file(fname_perims_in_cavm)
-else:
-    print("File of fire perimeters in CAVM doesn't exist, processing.")
-    # List all final VIIRS perimeters
-    gpkg_files = glob(os.path.join(DATA_FOLDER,
-                                   "feature_layers/fire_atlas/final_viirs*.gpkg"))
+# List all final VIIRS perimeters
+gpkg_files = glob(os.path.join(DATA_FOLDER,
+                                "feature_layers/fire_atlas/final_viirs*.gpkg"))
 
-    fire_perimeters = []
-    
-    # Grab all VIIRS perimeters and add to list (only perimeters since 2016, e.g., 4:)
-    for gpkg_file in gpkg_files[4:]:
-        gdf = gpd.read_file(gpkg_file)
-        fire_perimeters.append(gdf)
-    
-    # concat to one dataframe
-    merged_fire_perimeters = gpd.GeoDataFrame(pd.concat(fire_perimeters,
-                                                        ignore_index=True))
-    
-    # add UniqueID column (some FireIDs are duplicates despite large distances)
-    merged_fire_perimeters["UniqueID"] = range(len(merged_fire_perimeters))
-   
-    # extract fires east of 113°N (too many flase detections towards W Siberia with industry)
-    fires_east = merged_fire_perimeters[
-        merged_fire_perimeters.geometry.apply(lambda x: x.centroid.x > 113)]
-    fires_east['centroid'] = fires_east.geometry.centroid
-    
-    # Extract centroids for intersection (faster and avoids holes in polygon intersections)
-    fire_centroids = gpd.GeoDataFrame(fires_east[['UniqueID', 'centroid']],
-                                      geometry='centroid')
-    fire_centroids = fire_centroids.to_crs(cavm_outline.crs)
-    
-    # perform spatial intersect of centroids with CAVM
-    centroids_within_cavm = gpd.overlay(fire_centroids, 
-                                        cavm_outline, 
-                                        how='intersection')
+fire_perimeters = []
 
-    # select perimeters in CAVM zone
-    fire_within_cavm = fires_east[fires_east['UniqueID'].
-                                  isin(centroids_within_cavm.UniqueID.values)]
-    
-    
-    # Assign optimal UTM tile name to the fire perimeter
-    fire_within_cavm["opt_UTM_tile"] = fire_within_cavm.apply(lambda row :
-        find_optimal_utm_tile(mgrs_tile_centroids, row), axis=1)
-    
-    # Reset index
-    fire_within_cavm = fire_within_cavm.reset_index(drop=True)
+# Grab all VIIRS perimeters and add to list (only perimeters since 2016, e.g., 4:)
+for gpkg_file in gpkg_files[4:]:
+    gdf = gpd.read_file(gpkg_file)
+    fire_perimeters.append(gdf)
+
+# concat to one dataframe
+merged_fire_perimeters = gpd.GeoDataFrame(pd.concat(fire_perimeters,
+                                                    ignore_index=True))
+
+# add UniqueID column (some FireIDs are duplicates despite large distances)
+merged_fire_perimeters["UniqueID"] = range(len(merged_fire_perimeters))
+
+# extract fires east of 113°N (too many flase detections towards W Siberia with industry)
+fires_east = merged_fire_perimeters[
+    merged_fire_perimeters.geometry.apply(lambda x: x.centroid.x > 113)]
+fires_east['centroid'] = fires_east.geometry.centroid
+
+# Extract centroids for intersection (faster and avoids holes in polygon intersections)
+fire_centroids = gpd.GeoDataFrame(fires_east[['UniqueID', 'centroid']],
+                                    geometry='centroid')
+fire_centroids = fire_centroids.to_crs(cavm_outline.crs)
+
+# perform spatial intersect of centroids with CAVM
+centroids_within_cavm = gpd.overlay(fire_centroids, 
+                                    cavm_outline, 
+                                    how='intersection')
+
+# select perimeters in CAVM zone
+fire_within_cavm = fires_east[fires_east['UniqueID'].
+                                isin(centroids_within_cavm.UniqueID.values)]
+
+
+# Assign optimal UTM tile name to the fire perimeter
+fire_within_cavm["opt_UTM_tile"] = fire_within_cavm.apply(lambda row :
+    find_optimal_utm_tile(mgrs_tile_centroids, row), axis=1)
+
+# Reset index
+fire_within_cavm = fire_within_cavm.reset_index(drop=True)
     
 # Create final format of look-up-table
 final_lut = fire_within_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim', 
