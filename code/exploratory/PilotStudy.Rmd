@@ -757,7 +757,7 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
   
   # Generate predictions for curve plotting (for time-period doy 130-300) 
   pred <- data.frame(predict(model, data.frame(doy = 130:300))) %>% 
-  rename(doy = doy, index = doy.1)
+    rename(doy = doy, index = doy.1)
 
   # Get DOY of burn
   doy_burn <- yday(full_data$burn_date[1])
@@ -810,6 +810,7 @@ ggplot(data,aes(x = d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
 # ggsave2("figures/7d_prefireNDMI_vs_dNBR.png",
 #         bg = "white",width = 10, height = 8)
 ```
+
 ```{r}
 ggplot(data,aes(x = d_prefire_7,y = dNBR)) +
   geom_point(aes(color = elevation),alpha = .2) +
