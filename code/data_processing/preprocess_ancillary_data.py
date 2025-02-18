@@ -6,7 +6,7 @@ from osgeo import gdal
 import rasterio as rio
 from shapely.geometry import Point
 import geopandas as gpd
-import numpy as np
+import platform
 import pandas as pd
 
 # %% 0. Configure stuff
@@ -34,9 +34,10 @@ def find_optimal_utm_tile(mgrs_tile_centroids: gpd.GeoDataFrame,
     # reportt the tilename
     return nearest_mgrs_tile_centroid.Name.item()
 
-# %% 1. Load data
-DATA_FOLDER = '/data/nrietz/' # on sciencecluster
-DATA_FOLDER = 'data/' # on local machine
+if platform.system() == "Windows":
+    DATA_FOLDER = 'data/' # on local machine
+else:
+    DATA_FOLDER = '~/data/' # on sciencecluster
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters_2020 = gpd.read_file(os.path.join(DATA_FOLDER,

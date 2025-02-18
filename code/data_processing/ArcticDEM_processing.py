@@ -1,6 +1,6 @@
 import os
-import numpy as np
 import subprocess
+import platform
 from osgeo import gdal
 import geopandas as gpd
 import pandas as pd
@@ -77,8 +77,10 @@ def transform_url(url):
     return f"https://{match.group(1).replace('.json', '_dem.tif')}" if match else None
 
 #%% 1. Load data
-DATA_FOLDER = '~/data/' # on sciencecluster
-DATA_FOLDER = 'data/' # on local machine
+if platform.system() == "Windows":
+    DATA_FOLDER = 'data/' # on local machine
+else:
+    DATA_FOLDER = '~/data/' # on sciencecluster
 
 DOWNLOAD_DATA = True
 
