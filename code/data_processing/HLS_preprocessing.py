@@ -17,6 +17,7 @@ import ast
 import re
 from glob import glob
 import time
+import logging
 import datetime
 import multiprocessing
 import subprocess
@@ -35,6 +36,15 @@ from pyproj import CRS
 from skimage.filters import threshold_multiotsu
 
 # %% Define user functions
+def setup_logger(log_filename):
+    logger = logging.getLogger(log_filename)
+    handler = logging.FileHandler(log_filename)
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    return logger
+
 # Function to gather a list of lists with tiff files
 def get_hls_tif_list(main_dir):
     hls_granule_tiffs = []
@@ -153,14 +163,10 @@ def load_rasters(index_band_links: list,
         
         raster = raster.rio.clip(region_utm.geometry.values, region_utm.crs, all_touched=True)
     
-    # print("The COGs have been loaded into memory!")
-
     if hls_band_name != "Fmask":
         raster.attrs['scale_factor'] = 0.0001  # hard coded scale factor
         raster = scaling(raster)
     
-    # print('Data is loaded and scaled!')
-
     # Return the raster
     return raster
 
@@ -217,8 +223,6 @@ def calc_index(files: list,
     # Extract UTM EPSG code for reprojection
     file_utm_zone = tile_name.split(".")[2]
     utm_epsg_code = 32600 + int(file_utm_zone[1:3])
-    
-    print(f"Calculating: {index_name}")
     
     if index_name == "NDMI":
         # load spectral bands needed for NDMI
@@ -352,14 +356,13 @@ def calc_index(files: list,
     
     # Check if that tile's water mask exists
     if os.path.exists(wm_path):
-        print("Loading water mask.")
         water_mask = rxr.open_rasterio(wm_path,
                                        chunks=chunk_size,
                                        masked=True
                                        ).squeeze('band', drop=True
                                                  ).astype(bool)
     else:
-        print("Computing NDWI water mask.")
+        
         # load spectral bands needed for NDWI
         nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict,
@@ -412,13 +415,11 @@ def calc_index(files: list,
     
     # Check if that tile's Fmask tiff exists
     if os.path.exists(fmask_path):
-        print("Loading existing Fmask.")
         fmask = rxr.open_rasterio(fmask_path,
                                   chunks=chunk_size,
                                   masked=True).squeeze('band', drop=True)
     
     else:
-        print("Loading Fmask.")
         # Load tile's Fmask
         fmask = load_rasters(files, "FMASK",
                              band_dict = hls_band_dict,
@@ -454,34 +455,39 @@ def joblib_hls_preprocessing(files: list,
                              skip_source = None):
     start_time = time.time()
     
+    pid = os.getpid()
+    logger = setup_logger(f"tmp/log_{pid}.txt")
+
     original_name = os.path.basename(files[0])
 
-    print(f"Processing: {original_name.split('v2.0')[0]}", end = "\n")
+    logger.info(f"Processing: {original_name.split('v2.0')[0]}")
     
     for index_name in band_index:
+        logger.info(f"Calculating: {index_name}")
+        
         # Generate output name from the original filename
         out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}.tif"
         
         out_path = os.path.join(out_folder,out_name)
         
         if skip_source and skip_source in files[0]:
-            print("not reprocessing Sentinel data, only for Landsat..")
+            logger.info("not reprocessing Sentinel data, only for Landsat..")
             continue
         
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
         if os.path.exists(out_path):
             
             if OVERWRITE_DATA:
-                print(f"{out_name} exists but will be overwritten.")
+                logger.info(f"{out_name} exists but will be overwritten.")
                 
                 # Load existing data
                 spectral_index = calc_index(files, index_name,
                                             out_folder = out_folder,
                                             bit_nums = bit_nums)
-                print(f"{index_name} index calculated.", end = "\n")
+                logger.info(f"{index_name} index calculated.")
                 
             else:
-                print(f"{out_name} has already been processed and is available in this directory, moving to next file.")
+                logger.info(f"{out_name} has already been processed and is available in this directory, moving to next file.")
                 continue
         
         # "else" necessary to handle remasking of existing tiles in previous "if"
@@ -491,11 +497,11 @@ def joblib_hls_preprocessing(files: list,
                                         out_folder = out_folder,
                                         bit_nums = bit_nums)
             
-            print(f"{index_name} index calculated.", end = "\n")
+            logger.info(f"{index_name} index calculated.")
         
         # Remove any observations that are entirely fill value
         if np.nansum(spectral_index.data) == 0.0:
-            print(f"File: {files[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
+            logger.info(f"File: {files[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
             continue
 
         # Extract UTM EPSG code for reprojection
@@ -510,7 +516,7 @@ def joblib_hls_preprocessing(files: list,
         spectral_index.rio.to_raster(raster_path = out_path, 
                                      driver = 'COG')
     
-    print("--- %s seconds ---" % (time.time() - start_time))
+    logger.info("--- %s seconds ---" % (time.time() - start_time))
 
 
 # %% Execute pararellized processing
@@ -530,6 +536,10 @@ if __name__ == "__main__":
     else:
         DATA_FOLDER = '~/data/' # on sciencecluster
         HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/" # Set original data paths
+
+    # Remove old joblib log files
+    for log_file in glob("tmp/log_*.txt"):
+        os.remove(log_file)
     
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
     processing_lut = pd.read_csv(
@@ -545,10 +555,6 @@ if __name__ == "__main__":
     # Define bands/indices to process
     band_index = ast.literal_eval(sys.argv[2])
     
-    print("Band metrcis parsed from slurm:",band_index)
-    
-    # band_index = ["NDVI","NDMI"]
-
     # Overwrite existing tiles?
     OVERWRITE_DATA = False
     
@@ -590,23 +596,28 @@ if __name__ == "__main__":
             # For burn severity raster processing -
             # Create time range from LUT to subset HLS granules temporally
             if any(pattern in band_index for pattern in ["NBR","GEMI"]):
+
+                # n d maximum offset from end of fire to search HLS imagery in the year before
+                MAX_TIMEDELTA = 31
                 
                 # Download pre-fire data first (because HLS downloading script just downloads for fire year)
                 TASK_ID = os.environ.get("SLURM_ARRAY_TASK_ID")
-                TASK_ID = 99
-                
                 temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
                 with open(temp_tile_file, "w") as temp_file:
                     temp_file.write(UTM_TILE_NAME + "\n")
                 
+                # Get latest end date of fire in that year
+                latest_tile_fire_end = max(fire_perimeters_in_utm.ted_date)
+
                 # Format dynamic date range
-                search_start_date = fire_perimeters_in_utm['ted_date'].max() # time of latest end of burning in that tile
-                search_start_date_dynamic = f"{year-1}-{search_start_date}"
+                search_start_date_dynamic = (latest_tile_fire_end -
+                                             pd.Timedelta(days=MAX_TIMEDELTA) -
+                                             relativedelta(years=1)).strftime("%Y-%m-%d")
                 search_end_date_dynamic = f"{year-1}-10-31"
                 
                 # Execute bash command
                 download_script = "code/data_processing/getHLS.sh"
-                OUTPUT_DIR = '/scratch/nrietz/raster/hls/processed/'
+                OUTPUT_DIR = '/scratch/nrietz/raster/hls/'
                 
                 subprocess.run(["bash", download_script, temp_tile_file,
                                 search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
@@ -614,25 +625,16 @@ if __name__ == "__main__":
                 # Remove the temporary file
                 os.remove(temp_tile_file)
                 
-                # n d maximum offset from end of fire to search HLS imagery
-                MAX_TIMEDELTA = 31
-                
-                # Get latest end date of fire in that year
-                latest_tile_fire_end = max(fire_perimeters_in_utm.ted_date)
-                
                 # Define time search window
-                # START_DATE = "2020-05-01T00:00:00" # full growing season
                 START_DATE_POST = latest_tile_fire_end.strftime("%Y-%m-%dT%H:%M:%S")
                 START_DATE_PRE = (latest_tile_fire_end -
                                   pd.Timedelta(days=MAX_TIMEDELTA) -
                                   relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-                # END_DATE = "2020-10-15T23:59:59" # full growing season
-                END_DATE_POST = (latest_tile_fire_end +
-                                 pd.Timedelta(days=MAX_TIMEDELTA)).strftime("%Y-%m-%dT%H:%M:%S")
-                END_DATE_PRE = (latest_tile_fire_end +
-                                pd.Timedelta(days=MAX_TIMEDELTA)-
-                                relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
+                END_DATE_POST = f"{year}-10-31T23:59:59" 
+                #(latest_tile_fire_end + pd.Timedelta(days=MAX_TIMEDELTA)).strftime("%Y-%m-%dT%H:%M:%S")
+                END_DATE_PRE = f"{year-1}-10-31T23:59:59" 
+                #(latest_tile_fire_end +pd.Timedelta(days=MAX_TIMEDELTA)-relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
                 hls_granules_paths_post = search_files_by_doy_range(hls_granules_paths,
                                                                     START_DATE_POST, END_DATE_POST)
@@ -664,7 +666,6 @@ if __name__ == "__main__":
                 if os.environ.get("SLURM_CPUS_PER_TASK")
                 else os.cpu_count()
             )
-            # num_workers = -1 # -1 = all are used, -2 all but one
 
             multiprocessing.set_start_method('spawn')
             

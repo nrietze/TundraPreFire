@@ -1,7 +1,9 @@
 # %%
 import os
+import platform
 import multiprocessing
 import numpy as np
+import pandas as pd
 import geopandas as gpd
 from osgeo import gdal
 import xarray as xr
@@ -250,11 +252,18 @@ def calculate_severity_index(PROCESSED_HLS_DIR:str,
     return final_index
 
 # %% 1. Load data
-PATH_VIIRS_PERIMETERS = "../data/feature_layers/fire_atlas/"
+if platform.system() == "Windows":
+    DATA_FOLDER = 'data/' # on local machine
+    HLS_PARENT_PATH = "data/raster/hls/test"
+else:
+    DATA_FOLDER = '~/data/' # on sciencecluster
+    HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/" # Set original data paths
+
+PROCESSED_HLS_DIR = HLS_PARENT_PATH + 'processed/'
 
 # Load VIIRS perimeters in Siberian tundra
-FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,
-                                        "viirs_perimeters_in_cavm_e113.gpkg")
+FN_VIIRS_CAVM_PERIMETERS = os.path.join(DATA_FOLDER,
+                                        "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 
 if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
     print("Loading VIIRS fire perimeters in CAVM zone.")
@@ -262,10 +271,18 @@ if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
 else:
     print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
 
-HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/"
-PROCESSED_HLS_DIR = '/home/nrietz/data/raster/hls/'
+# Load Processing look-up-table to match UTM tiles to fire perimeter IDs
+processing_lut = pd.read_csv(
+    os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"),
+    index_col=0)
 
-    TEST_ID = 14211 # fire ID for part of the large fire scar
+# Create date objects
+processing_lut['tst_date'] = processing_lut.apply(
+    lambda row: datetime.date(row['tst_year'], row['tst_month'], row['tst_day']), axis=1)
+processing_lut['ted_date'] = processing_lut.apply(
+    lambda row: datetime.date(row['ted_year'], row['ted_month'], row['ted_day']), axis=1)
+
+TEST_ID = 14211 # fire ID for part of the large fire scar
 
 # %% 2. Find HLS imagery pre- and post-fire
 
