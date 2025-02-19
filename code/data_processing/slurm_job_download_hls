@@ -1,0 +1,44 @@
+#!/bin/bash -l
+#SBATCH --job-name=arrayJob
+#SBATCH --time=0-08:00:00   ## days-hours:minutes:seconds
+#SBATCH --array=0-19
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
+#SBATCH --mem-per-cpu=3850
+#SBATCH --output=logs/hls_download_%a.out
+#SBATCH --error=logs/hls_download_%a.err
+
+module load mamba
+source activate lpdaac_vitals
+
+cd ~/TundraPreFire/
+
+UTM_TILEID_FILE="code/data_processing/tileid_file.txt"
+
+metrics='["NDVI","NDMI"]'
+
+# Get total number of lines
+NUM_LINES=$(wc -l < "$UTM_TILEID_FILE")
+
+# Set number of tasks
+NUM_TASKS=20  # Should match the --array size
+
+# Compute chunk size (ceiling division)
+CHUNK_SIZE=$(( (NUM_LINES + NUM_TASKS - 1) / NUM_TASKS ))
+
+# Compute start and end lines for this task
+START=$(( SLURM_ARRAY_TASK_ID * CHUNK_SIZE + 1 ))
+END=$(( START + CHUNK_SIZE - 1 ))
+
+# Extract lines for this task
+sed -n "${START},${END}p" "$UTM_TILEID_FILE" > tmp/task_${SLURM_ARRAY_TASK_ID}.txt
+
+echo 'HLS download starting.'
+python code/data_processing/HLS_downloading.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
+echo 'finished'
+
+echo 'HLS preprocessing starting.'
+# Execute HLS preprocessing script with the split UTM tile id file
+python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
+
+echo 'finished'
