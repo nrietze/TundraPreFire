@@ -19,6 +19,7 @@ from glob import glob
 import time
 import datetime
 import multiprocessing
+import subprocess
 import platform
 import numpy as np
 import dask.array as da
@@ -560,7 +561,7 @@ if __name__ == "__main__":
     UTM_TILE_FILE = sys.argv[1]
     
     with open(UTM_TILE_FILE, "r") as file:
-        UTM_TILE_LIST = [line.strip() for line in file] 
+        UTM_TILE_LIST = [line.strip() for line in file]
         
     # UTM_TILE_LIST = ["54WXE","53WMU"] # for testing
     
@@ -589,7 +590,31 @@ if __name__ == "__main__":
             # For burn severity raster processing -
             # Create time range from LUT to subset HLS granules temporally
             if any(pattern in band_index for pattern in ["NBR","GEMI"]):
-                # 15 d maximum offset from end of fire to search HLS imagery
+                
+                # Download pre-fire data first (because HLS downloading script just downloads for fire year)
+                TASK_ID = os.environ.get("SLURM_ARRAY_TASK_ID")
+                TASK_ID = 99
+                
+                temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
+                with open(temp_tile_file, "w") as temp_file:
+                    temp_file.write(UTM_TILE_NAME + "\n")
+                
+                # Format dynamic date range
+                search_start_date = fire_perimeters_in_utm['ted_date'].max() # time of latest end of burning in that tile
+                search_start_date_dynamic = f"{year-1}-{search_start_date}"
+                search_end_date_dynamic = f"{year-1}-10-31"
+                
+                # Execute bash command
+                download_script = "code/data_processing/getHLS.sh"
+                OUTPUT_DIR = '/scratch/nrietz/raster/hls/processed/'
+                
+                subprocess.run(["bash", download_script, temp_tile_file,
+                                search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
+                
+                # Remove the temporary file
+                os.remove(temp_tile_file)
+                
+                # n d maximum offset from end of fire to search HLS imagery
                 MAX_TIMEDELTA = 31
                 
                 # Get latest end date of fire in that year

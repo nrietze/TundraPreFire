@@ -37,7 +37,6 @@ for TILE_ID in UTM_TILE_LIST:
         years = matching_row["tst_year"].values
 
         for year in years:
-            print(year)
             # Format dynamic date range
             start_date_dynamic = f"{year}-{start_date}"
             end_date_dynamic = f"{year}-{end_date}"
@@ -46,7 +45,6 @@ for TILE_ID in UTM_TILE_LIST:
 
             # Create a temporary file with the single tile ID
             TASK_ID = os.environ.get("SLURM_ARRAY_TASK_ID")
-            print("TASK_ID:",TASK_ID)
             
             temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
             with open(temp_tile_file, "w") as temp_file:

@@ -33,12 +33,13 @@ END=$(( START + CHUNK_SIZE - 1 ))
 # Extract lines for this task
 sed -n "${START},${END}p" "$UTM_TILEID_FILE" > tmp/task_${SLURM_ARRAY_TASK_ID}.txt
 
+# Execute HLS downloading script with the split UTM tile id file
 echo 'HLS download starting.'
 python code/data_processing/HLS_downloading.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
 echo 'finished'
 
-echo 'HLS preprocessing starting.'
 # Execute HLS preprocessing script with the split UTM tile id file
+echo 'HLS preprocessing starting.'
 python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
 
 echo 'finished'
