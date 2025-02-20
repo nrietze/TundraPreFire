@@ -1,0 +1,11 @@
+#...
+source activate lpdaac_vitals
+
+SLURM_ARRAY_TASK_ID=$1
+
+cd ~/TundraPreFire/
+
+echo 'Slurm testing starting.'
+python code/data_processing/slurm_calculate_burn_severity.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
+
+echo 'finished'
