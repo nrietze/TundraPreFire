@@ -13,7 +13,6 @@ output:
 library(terra)
 library(tidyterra)
 library(spatstat.utils)
-library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)

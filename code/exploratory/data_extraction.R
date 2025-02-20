@@ -89,6 +89,11 @@ stack_time_series <- function(hls_dir,utm_tile_id, index_name){
   # Merge S30 and L30 stack
   spectral_index <- c(spectral_index_s30, spectral_index_l30)
   
+  # Shift NDMI by 1
+  if (index_name == "NDMI"){
+    spectral_index <- spectral_index + 1
+  }
+  
   cat("done.")
   return(spectral_index)
 }
@@ -161,9 +166,9 @@ selected_fire_perimeter <- fire_perimeters %>%
   project(crs(rast_burn_severity))
 
 # Load descals burned area raster for the selected fire
-descals_lut <- read.csv("data/tables/descals_tile_LUT.csv")
+final_lut <- read.csv("data/tables/processing_LUT.csv")
 
-descals_tilename <- descals_lut %>% 
+descals_tilename <- final_lut %>% 
   filter(fireid  == TEST_ID) %>% 
   select(descals_file)
 
