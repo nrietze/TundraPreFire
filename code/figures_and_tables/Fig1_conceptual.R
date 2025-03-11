@@ -15,21 +15,21 @@ library(patchwork)
 set.seed(10)
 
 # 1. Load data and simulate NDMI time series ----
-# Load real data from fire scar (fireid = 14211)
-data_all <- read.csv(sprintf("data/tables/full_data_table_%s.csv",TEST_ID))
-
 UTM_TILE_ID <- "54WXE"
 year <- 2020
 severity_index <- "dNBR"
 TEST_ID <- 14211
 
+# Load real data from fire scar (fireid = 14211)
+data_all <- read.csv(sprintf("data/tables/full_data_table_%s.csv",TEST_ID))
+
 dnbr <- rast(
-  sprintf("data/raster/hls/severity_rasters/%s_%s_%s.tif",
+  sprintf("~/data/raster/hls/severity_rasters/%s_%s_%s.tif",
           UTM_TILE_ID, year,severity_index)) * 1000
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
-  "data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
 selected_fire_perimeter <- fire_perimeters %>% 
@@ -41,7 +41,7 @@ dnbr_in_perimeter <- dnbr %>%
   crop(selected_fire_perimeter)
 
 # Load sampled points (with associated burn dates)
-sample_points <- vect("data/feature_layers/sample_points_burn_date.gpkg") %>% 
+sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
   project(crs(dnbr)) %>% 
   mutate(ObservationID = 1:nrow(.))
 
@@ -71,7 +71,7 @@ simulate_ndmi <- function(days_since_burn, type) {
   }
   
   # Constrain NDMI values within -0.2 to 0.4
-  ndmi <- pmax(-0.1, pmin(ndmi, 0.3))
+  ndmi <- pmax(-0.1, pmin(ndmi, 0.3)) + 1
   
   return(data.frame(DaysSinceBurn = days_since_burn, NDMI = ndmi, Curve = type))
 }
@@ -135,7 +135,9 @@ fig_1b <- ggplot(ndmi_data, aes(x = DaysSinceBurn, y = NDMI, color = Curve)) +
        x = "Days since burn", y = "Metric for vegetation condition (here NDMI)") +
   scale_color_viridis_d(end = 0.8, option = "inferno") +
   scale_fill_viridis_d(end = 0.8, option = "inferno") +
-  lims(x = xlims, y = c(-0.2, 0.4)) +
+  lims(x = xlims, 
+       #y = c(-0.2, 0.4)
+       ) +
   facet_grid(. ~ Curve,labeller = as_labeller(curve_names)) +
   theme_cowplot(FONT_SIZE) +
   theme(legend.position = "none")
@@ -174,7 +176,9 @@ fig_1c <- ndmi_data %>%
        y = TeX("Cumulative NDMI ($S_{NDMI}$)")) +
   scale_color_viridis_d(end = 0.8, option = "inferno") +
   scale_fill_viridis_d(end = 0.8, option = "inferno") +
-  lims(x = c(xlims[1],0),y = c(-1,5)) +
+  lims(x = c(xlims[1],0),
+       y = c(-1,20)
+       ) +
   theme_cowplot(FONT_SIZE) +
   theme(legend.position = "none")
 
