@@ -37,21 +37,36 @@ def replace_string_in_filename(hls_filename, string):
     
     return out_string
 
-def calculate_clear_pixel_percentage(file:str,
-                                     hls_processed_path:str,
-                                     polygon:gpd.GeoDataFrame,
-                                     bit_nums = [0,1,2,3,4]):
-    """Calculate percentage of non-NaN, non-water pixels in the polygon."""
-    
-    # Load the sample raster
-    with rio.open(file) as src:
-        geometry = gpd.GeoSeries([polygon.geometry],crs = 4326)
-        polygon_geom = geometry.to_crs(src.crs).geometry.iloc[0]
-       
-        # Crop to the polygon area
-        image, _ = mask(src, [polygon_geom], crop=True)
+def calculate_clear_pixel_percentage(data,
+                                     polygon:gpd.GeoDataFrame):
+    """Calculate percentage of non-NaN, non-water pixels in the polygon.
+
+    Args:
+        data: Can be a filename string or xr.DataArray of the raster to be looked up.
+        polygon (gpd.GeoDataFrame): The polygon of the fire perimeter that is used to calculate the pixel percentage.
+
+    Returns:
+        int: Valid pixel percentage within the polygon.
+    """
+    # Apply function to existing raster with rasterio
+    if isinstance(data, str):
+        # Load the sample raster
+        with rio.open(data) as src:
+            geometry = gpd.GeoSeries([polygon.geometry],crs = 4326)
+            polygon_geom = geometry.to_crs(src.crs).geometry.iloc[0]
         
-        nodata_value = src.nodata if src.nodata is not None else np.nan
+            # Crop to the polygon area
+            image, _ = mask(src, [polygon_geom], crop=True)
+    
+    # Apply function to memory loaded xarray
+    elif isinstance(data, xr.DataArray):
+        # Reproject polygon to match xarray CRS
+        crs = data.rio.crs
+        geometry = gpd.GeoSeries([polygon.geometry], crs=4326).to_crs(crs)
+        
+        # Clip the xarray to the polygon
+        clipped = data.rio.clip(geometry, all_touched=True)
+        image = clipped.values
     
     # Flatten array for easier pixel counting
     image_flat = image.flatten()
@@ -72,12 +87,14 @@ def time_index_from_filenames(files):
     '''
     return [datetime.datetime.strptime(f.split('.')[-4], '%Y%jT%H%M%S') for f in files]
 
-def calculate_severity_metrics(gemi_prefire_composite, gemi_postfire_composite,
+def calculate_severity_metrics(gemi_prefire_composite,
+                               gemi_postfire_composite,
                                nbr_prefire_composite, nbr_postfire_composite,
                                date_postfire,
                                index_names: list,
-                               year: int,
                                utm_tileid: str,
+                               polygon:gpd.GeoDataFrame,
+                               MIN_VALID_PERCENTAGE:int,
                                OUT_DIR=None):
     
     for index_name in index_names:
@@ -99,18 +116,24 @@ def calculate_severity_metrics(gemi_prefire_composite, gemi_postfire_composite,
             # Calculate relativized burn ratio (pre - post fire)
             dnbr = nbr_prefire_composite - nbr_postfire_composite
             final_index = dnbr / (nbr_prefire_composite + 1.001)
-    
+
         # Exclude infinite values
         final_index = xr.where(final_index != np.inf, final_index, np.nan, keep_attrs=True)
     
         # Change the long_name attribute
         final_index.attrs['long_name'] = index_name
         
-        if OUT_DIR is not None:
+        # Check if output raster has > 80% valid pixels in fire perimeter
+        clear_percentage = calculate_clear_pixel_percentage(final_index,polygon=polygon)
+        
+        if clear_percentage > MIN_VALID_PERCENTAGE and OUT_DIR is not None:
             out_name = os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{date_postfire}.tif")
     
             # Export as Cloud Optimized GeoTIFF
             final_index.rio.to_raster(raster_path=out_name, driver="COG")
+        else:
+            print(f"Severity raster doesn't have > {MIN_VALID_PERCENTAGE} % valid pixels in perimter. Skipping export.\n")
+            continue
     return None
 
 def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str, 
@@ -126,7 +149,9 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
     search_index_names = ["NBR","GEMI"]
 
     # Filter fire perimeters that use this UTM tile
-    fire_polygons_in_utm = fire_polygons.loc[fire_polygons.opt_UTM_tile == utm_tileid]
+    fires_in_utm = processing_lut.loc[processing_lut.opt_UTM_tile == utm_tileid]
+    
+    fire_polygons_in_utm = fire_polygons.loc[np.isin(fire_polygons.fireid, fires_in_utm.fireid)]
     
     # Loop through each year
     for (_,perimeter) in fire_polygons_in_utm.iterrows():
@@ -145,23 +170,21 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         nbr_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}*NBR.tif"))
         gemi_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}*GEMI.tif"))
 
-        # Filter out data with > 80% clear pixels in the perimeter
+        # Only use scenes with <= 20 % clear pixels in the perimeter to process further
         good_nbr_files = []
         good_gemi_files = []
 
-        MIN_VALID_PERCENTAGE = 50
+        MIN_VALID_PERCENTAGE = 20
         
         for file in nbr_files:
-            clear_percentage = calculate_clear_pixel_percentage(file, 
-                                                                hls_processed_path=PROCESSED_HLS_DIR,
+            clear_percentage = calculate_clear_pixel_percentage(file,
                                                                 polygon = perimeter)
             
             if clear_percentage > MIN_VALID_PERCENTAGE:
                 good_nbr_files.append(file)
 
         for file in gemi_files:
-            clear_percentage = calculate_clear_pixel_percentage(file, 
-                                                                hls_processed_path=PROCESSED_HLS_DIR,
+            clear_percentage = calculate_clear_pixel_percentage(file,
                                                                 polygon = perimeter)
             
             if clear_percentage > MIN_VALID_PERCENTAGE:
@@ -184,6 +207,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                                                 ).squeeze('band',drop=True) for f in good_nbr_files], dim=time)
         nbr_ts.name = "NBR"
 
+        time = xr.Variable('time', time_index_from_filenames(good_gemi_files))
         gemi_ts = xr.concat([rxr.open_rasterio(f, mask_and_scale=True,
                                                 chunks=chunk_size
                                                 ).squeeze('band',drop=True) for f in good_gemi_files], dim=time)
@@ -202,14 +226,14 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         last_search_date_pre = f"{year-1}-10-31"
         
         # Resample to daily resolution and compute max composite
-        gemi_daily = gemi_ts.resample(time="1D").max()
         nbr_daily = nbr_ts.resample(time="1D").max()
+        gemi_daily = gemi_ts.resample(time="1D").max()
         
         # Select post-fire time series
-        postfire_gemi = gemi_daily.sel(time=slice(first_search_date_post, last_search_date_post))
+        postfire_nbr = nbr_daily.sel(time=slice(first_search_date_post, last_search_date_post))
 
         # Iterate through post-fire dates
-        for postfire_date in postfire_gemi["time"].values:
+        for postfire_date in postfire_nbr["time"].values:
             postfire_date = pd.Timestamp(postfire_date)
 
             # Retrieve post-fire composite for both GEMI and NBR
@@ -226,15 +250,19 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         
             if prefire_gemi.time.size > 0 and prefire_nbr.time.size > 0:  # Ensure pre-fire data exists
                 # Median composite over available days
-                gemi_prefire_composite = prefire_gemi.mean(dim="time") 
+                gemi_prefire_composite = prefire_gemi.mean(dim="time")
                 nbr_prefire_composite = prefire_nbr.mean(dim="time")
 
                 calculate_severity_metrics(
                     gemi_prefire_composite, gemi_postfire_composite,
                     nbr_prefire_composite, nbr_postfire_composite,
-                    postfire_date.strftime("%Y-%m-%d"),
-                    index_names, year, utm_tileid, OUT_DIR=OUT_DIR
+                    date_postfire=postfire_date.strftime("%Y-%m-%d"),
+                    index_names=index_names, utm_tileid=utm_tileid,
+                    polygon=perimeter,
+                    MIN_VALID_PERCENTAGE=80,
+                    OUT_DIR=OUT_DIR
                 )
+                
             else:
                 print(f"No pre-fire match found for {postfire_date}")
 
@@ -242,15 +270,16 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
 
 # %% Execute pararellized processing
 if __name__ == "__main__":
-    # %% 1. Load data
     print("Loading data...")
     
     if platform.system() == "Windows":
         DATA_FOLDER = 'data/' # on local machine
-        PROCESSED_HLS_DIR = "data/raster/hls/test"
+        PROCESSED_HLS_DIR = "data/raster/hls/processed"
+        OUT_FOLDER = '/data/raster/hls/severity_rasters'
     else:
         DATA_FOLDER = '~/data/' # on sciencecluster
         PROCESSED_HLS_DIR = "/home/nrietz/scratch/raster/hls/processed/" # Set original data paths
+        OUT_FOLDER = '/data/nrietz/raster/hls/severity_rasters'
     
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
     processing_lut = pd.read_csv(
@@ -280,8 +309,6 @@ if __name__ == "__main__":
                     if os.environ.get("SLURM_CPUS_PER_TASK")
                     else os.cpu_count()
                 )
-    
-    OUT_FOLDER = '/data/nrietz/raster/hls/severity_rasters'
     
     print("Starting parallelized calculation...")
     
