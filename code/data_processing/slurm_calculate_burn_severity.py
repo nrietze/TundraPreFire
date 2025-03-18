@@ -126,6 +126,8 @@ def calculate_severity_metrics(gemi_prefire_composite,
         # Check if output raster has > 80% valid pixels in fire perimeter
         clear_percentage = calculate_clear_pixel_percentage(final_index,polygon=polygon)
         
+        print(f"Clear pixel percentage in current perimeter: {clear_percentage}")
+        
         if clear_percentage > MIN_VALID_PERCENTAGE and OUT_DIR is not None:
             out_name = os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{date_postfire}.tif")
     
