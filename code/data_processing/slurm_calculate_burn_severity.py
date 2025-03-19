@@ -228,32 +228,35 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         last_search_date_pre = f"{year-1}-10-31"
         
         # Resample to daily resolution and compute max composite
-        nbr_daily = nbr_ts.resample(time="1D").max()
-        gemi_daily = gemi_ts.resample(time="1D").max()
+        nbr_ts.coords['date'] = nbr_ts.time.dt.floor('1D') # create date coord. for grouping
+        nbr_daily = nbr_ts.groupby("date").max()
+        gemi_ts.coords['date'] = gemi_ts.time.dt.floor('1D')
+        gemi_daily = gemi_ts.groupby("date").max()
         
         # Select post-fire time series
-        postfire_nbr = nbr_daily.sel(time=slice(first_search_date_post, last_search_date_post))
+        postfire_nbr = nbr_daily.sel(date=slice(first_search_date_post,
+                                                last_search_date_post))
 
         # Iterate through post-fire dates
-        for postfire_date in postfire_nbr["time"].values:
+        for postfire_date in postfire_nbr["date"].values:
             postfire_date = pd.Timestamp(postfire_date)
 
             # Retrieve post-fire composite for both GEMI and NBR
-            gemi_postfire_composite = gemi_daily.sel(time=postfire_date.strftime("%Y-%m-%d"))
-            nbr_postfire_composite = nbr_daily.sel(time=postfire_date.strftime("%Y-%m-%d"))
+            gemi_postfire_composite = gemi_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
+            nbr_postfire_composite = nbr_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
             
             # Define pre-fire search window (±7 days of same day last year)
             prefire_start = postfire_date - relativedelta(years=1) - pd.Timedelta(days=MAX_TIMEDELTA)
             prefire_end = postfire_date - relativedelta(years=1) + pd.Timedelta(days=MAX_TIMEDELTA)
         
             # Select pre-fire composites
-            prefire_gemi = gemi_daily.sel(time=slice(prefire_start, prefire_end))
-            prefire_nbr = nbr_daily.sel(time=slice(prefire_start, prefire_end))
+            prefire_gemi = gemi_daily.sel(date=slice(prefire_start, prefire_end))
+            prefire_nbr = nbr_daily.sel(date=slice(prefire_start, prefire_end))
         
-            if prefire_gemi.time.size > 0 and prefire_nbr.time.size > 0:  # Ensure pre-fire data exists
+            if prefire_gemi.date.size > 0 and prefire_nbr.date.size > 0:  # Ensure pre-fire data exists
                 # Median composite over available days
-                gemi_prefire_composite = prefire_gemi.mean(dim="time")
-                nbr_prefire_composite = prefire_nbr.mean(dim="time")
+                gemi_prefire_composite = prefire_gemi.mean(dim="date")
+                nbr_prefire_composite = prefire_nbr.mean(dim="date")
 
                 calculate_severity_metrics(
                     gemi_prefire_composite, gemi_postfire_composite,
@@ -261,7 +264,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                     date_postfire=postfire_date.strftime("%Y-%m-%d"),
                     index_names=index_names, utm_tileid=utm_tileid,
                     polygon=perimeter,
-                    MIN_VALID_PERCENTAGE=80,
+                    MIN_VALID_PERCENTAGE=66,
                     OUT_DIR=OUT_DIR
                 )
                 
@@ -277,7 +280,7 @@ if __name__ == "__main__":
     if platform.system() == "Windows":
         DATA_FOLDER = 'data/' # on local machine
         PROCESSED_HLS_DIR = "data/raster/hls/processed"
-        OUT_FOLDER = '/data/raster/hls/severity_rasters'
+        OUT_FOLDER = './data/raster/hls/severity_rasters'
     else:
         DATA_FOLDER = '~/data/' # on sciencecluster
         PROCESSED_HLS_DIR = "/home/nrietz/scratch/raster/hls/processed/" # Set original data paths
