@@ -104,18 +104,21 @@ def fun_mask_ls_sr(img):
     1 = cloud
     0 = cirrus
     """
-    # bits used in HLS filtering: [0,1,2,3,4]
-    
-    # Create a bitmask to filter out bits 0 to 4
-    bitmask = (ee.Number(2).pow(0)        # Cirrus (bit 0)
-               .add(ee.Number(2).pow(1))  # Cloud (bit 1)
-               .add(ee.Number(2).pow(2))  # Cloud/Shadow Adjacent (bit 2)
-               .add(ee.Number(2).pow(3))  # Cloud Shadow (bit 3)
-               .add(ee.Number(2).pow(4))) # Snow/Ice (bit 4)
-    
     qa = img.select('QA_PIXEL')
     
-    mask = qa.bitwiseAnd(bitmask).eq(0)
+    # Create a bitmask to filter out bits 0 to 4 used in HLS filtering
+    mask = (qa.bitwiseAnd(ee.Number(2).pow(0).int()).eq(0)
+            .And(qa.bitwiseAnd(ee.Number(2).pow(1).int()).eq(0))
+            .And(qa.bitwiseAnd(ee.Number(2).pow(2).int()).eq(0))
+            .And(qa.bitwiseAnd(ee.Number(2).pow(3).int()).eq(0))
+            .And(qa.bitwiseAnd(ee.Number(2).pow(4).int()).eq(0)))
+    # bitmask = (ee.Number(2).pow(0)        # Cirrus (bit 0)
+    #            .add(ee.Number(2).pow(1))  # Cloud (bit 1)
+    #            .add(ee.Number(2).pow(2))  # Cloud/Shadow Adjacent (bit 2)
+    #            .add(ee.Number(2).pow(3))  # Cloud Shadow (bit 3)
+    #            .add(ee.Number(2).pow(4))) # Snow/Ice (bit 4)
+    
+    # mask = qa.bitwiseAnd(bitmask).eq(0)
     
     return img.updateMask(mask)
 
@@ -273,57 +276,60 @@ for i in fire_polygons.index:
     print("done.")
 
 #%% [OPTIONAL] Generate temporal statistics & Export
-lookup_metrics = {
-    'mean': ee.Reducer.mean(),
-    'min': ee.Reducer.min(),
-    'max': ee.Reducer.max(),
-    'std': ee.Reducer.stdDev(),
-    'median': ee.Reducer.median(),
-    'ts': ee.Reducer.sensSlope()
-}
+COMPUTE_METRICS = False
 
-select_metrics = ['nobs']
-percentiles = []
-ROI_FILENAME = 'KYT_TEST'
+if COMPUTE_METRICS:
+    lookup_metrics = {
+        'mean': ee.Reducer.mean(),
+        'min': ee.Reducer.min(),
+        'max': ee.Reducer.max(),
+        'std': ee.Reducer.stdDev(),
+        'median': ee.Reducer.median(),
+        'ts': ee.Reducer.sensSlope()
+    }
 
-for metric in select_metrics:
-    if metric == 'ts':
-        temp = imgCol_mosaic.select(['TIME', RASTER_BAND]).reduce(ee.Reducer.sensSlope())
-        temp = temp.select('slope')
-        temp = temp.multiply(365)
-        temp = temp.multiply(100000000).int32()
-    elif metric == 'nobs':
-        temp = imgCol_mosaic.select(RASTER_BAND).count()
-        temp = temp.int16()
-    else:
-        if metric == 'percentile':
-            temp = imgCol_mosaic.select(RASTER_BAND).reduce(ee.Reducer.percentile(percentiles))
+    select_metrics = ['nobs']
+    percentiles = []
+    ROI_FILENAME = 'KYT_TEST'
+
+    for metric in select_metrics:
+        if metric == 'ts':
+            temp = imgCol_mosaic.select(['TIME', RASTER_BAND]).reduce(ee.Reducer.sensSlope())
+            temp = temp.select('slope')
+            temp = temp.multiply(365)
+            temp = temp.multiply(100000000).int32()
+        elif metric == 'nobs':
+            temp = imgCol_mosaic.select(RASTER_BAND).count()
+            temp = temp.int16()
         else:
-            reducer = lookup_metrics[metric]
-            temp = imgCol_mosaic.select(RASTER_BAND).reduce(reducer)
-        # if RASTER_BAND == 'TIR':
-        #     temp = temp.multiply(100).int16()
-        # else:
-        #     temp = temp.multiply(10000).int16()
+            if metric == 'percentile':
+                temp = imgCol_mosaic.select(RASTER_BAND).reduce(ee.Reducer.percentile(percentiles))
+            else:
+                reducer = lookup_metrics[metric]
+                temp = imgCol_mosaic.select(RASTER_BAND).reduce(reducer)
+            # if RASTER_BAND == 'TIR':
+            #     temp = temp.multiply(100).int16()
+            # else:
+            #     temp = temp.multiply(10000).int16()
 
-    # Export to Drive
-    filename = RASTER_BAND + '_'+ \
-        ROI_FILENAME + '_GEE_' + \
-            str(YEAR_START) + '-' + \
-                str(YEAR_END)+ '_' + \
-                    str(MONTH_START) + '-' + \
-                        str(MONTH_END) + '_' + metric
-    
-    task = ee.batch.Export.image.toDrive(
-        image = temp, 
-        description = filename,
-        folder = "Tundra_PreFire",
-        scale = PIXEL_RESOLUTION,
-        maxPixels = 1e13,
-        region = select_roi['coordinates'][0],
-        crs = EPSG,
-        formatOptions={
-            'cloudOptimized': True
-            }
-        )
-    process = ee.batch.Task.start(task)
+        # Export to Drive
+        filename = RASTER_BAND + '_'+ \
+            ROI_FILENAME + '_GEE_' + \
+                str(YEAR_START) + '-' + \
+                    str(YEAR_END)+ '_' + \
+                        str(MONTH_START) + '-' + \
+                            str(MONTH_END) + '_' + metric
+        
+        task = ee.batch.Export.image.toDrive(
+            image = temp, 
+            description = filename,
+            folder = "Tundra_PreFire",
+            scale = PIXEL_RESOLUTION,
+            maxPixels = 1e13,
+            region = select_roi['coordinates'][0],
+            crs = EPSG,
+            formatOptions={
+                'cloudOptimized': True
+                }
+            )
+        process = ee.batch.Task.start(task)
