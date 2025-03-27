@@ -251,10 +251,22 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         for postfire_date in postfire_nbr["date"].values:
             postfire_date = pd.Timestamp(postfire_date)
 
-            # Retrieve post-fire composite for both GEMI and NBR
-            gemi_postfire_composite = gemi_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
-            nbr_postfire_composite = nbr_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
-            
+            # Define post-fire search window (±7 days of same day last year)
+            postfire_start = postfire_date - pd.Timedelta(days=MAX_TIMEDELTA)
+            postfire_end = postfire_date + pd.Timedelta(days=MAX_TIMEDELTA)
+        
+            # Select post-fire data
+            postfire_gemi = gemi_daily.sel(date=slice(postfire_start, postfire_end))
+            postfire_nbr = nbr_daily.sel(date=slice(postfire_start, postfire_end))
+        
+            # Median composite over available days
+            gemi_postfire_composite = postfire_gemi.min(dim="date")
+            nbr_postfire_composite = postfire_nbr.min(dim="date")
+
+            # Use single-day post-fire scene as basis for bitemporal index
+            # gemi_postfire_composite = gemi_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
+            # nbr_postfire_composite = nbr_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
+
             # Define pre-fire search window (±7 days of same day last year)
             prefire_start = postfire_date - relativedelta(years=1) - pd.Timedelta(days=MAX_TIMEDELTA)
             prefire_end = postfire_date - relativedelta(years=1) + pd.Timedelta(days=MAX_TIMEDELTA)

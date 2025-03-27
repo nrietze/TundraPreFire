@@ -2,7 +2,7 @@ library(terra)
 library(sf)
 library(tidyterra)
 library(rts)
-library(gt)
+#library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
@@ -11,7 +11,9 @@ print(getwd())
 
 set.seed(10)
 
-# 0. Configure functions ----
+# A. Configure functions ----
+# ===========================.
+
 sample_dnbr_points <- function(raster, sample_pct = 0.10) {
   # Frequency table for raster bins
   freq_table <- freq(raster, digits = 0)
@@ -131,142 +133,175 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
 }
 
 
-# 1. Loading and preparing data: ----
-UTM_TILE_ID <- "54WXE"
-year <- 2020
+# B. Loading and preparing data: ----
+# ===================================.
+
+# Set name of severity index to extract data for
 severity_index <- "dNBR"
-TEST_ID <- 14211 # fire ID for part of the large fire scar
 
 # Set name of spectral index to extract data for
 index_name <- "NDMI"
 
-# Define percentile for sample cutoff
-pct_cutoff <- 0.5
-
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- TRUE
 
-# Output directory for sample tables
-TABLE_DIR <- "~/data/tables/"
+TEST_ID <- c(17548,10792,14664) # fire ID for part of the large fire scar
 
-rast_burn_severity <- rast(
-  sprintf("~/data/raster/hls/severity_rasters/%s_%s_%s.tif",
-          UTM_TILE_ID, year,severity_index))
+# Define percentile for sample cutoff
+pct_cutoff <- 0.5
+
+OS <- Sys.info()[['sysname']]
+
+# Output directory for sample tables
+TABLE_DIR <- ifelse(OS == "Linux", 
+                    "~/data/tables/","data/tables/")
+
+# Load lookup tables
+final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
+  filter(tst_year >= 2017) %>% 
+  filter(fireid %in% TEST_ID)
+
+dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
-# Load table of ArcticDEM tiles for each fire perimeter
-dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv"))
+# C. Run data extraction ----
+#============================.
 
-selected_fire_perimeter <- fire_perimeters %>% 
-  filter(fireid  == TEST_ID) %>%
-  project(crs(rast_burn_severity))
-
-# Load descals burned area raster for the selected fire
-final_lut <- read.csv("data/tables/processing_LUT.csv")
-
-descals_tilename <- final_lut %>% 
-  filter(fireid  == TEST_ID) %>% 
-  select(descals_file)
-
-# read raster
-descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",descals_tilename)) 
-
-# Reclassify to binary burned area raster where 1 is burned that year (of selected fire perimeter), 0 not
-year_value_descals <- selected_fire_perimeter$tst_year - 1990 # value 30 is for burned area in 2020
-
-# ... and crop with reprojected fire perimeter (and 1km buffer)
-descals_rast_bin <- terra::as.int(descals_rast == year_value_descals) %>% 
-  crop(buffer(
-    project(selected_fire_perimeter,crs(descals_rast))
-    ,1e3))
-
-# Reproject raster if necessary
-if (crs(descals_rast_bin) != crs(selected_fire_perimeter)){
-  descals_rast_bin <- project(descals_rast_bin,
-                              crs(selected_fire_perimeter),
-                              method = "near")
-}
-
-# Load DEM tiles for this fire perimeter
-dem_tiles <- dem_lut %>% 
-  filter(fireid ==TEST_ID) %>% 
-  mutate(filename = paste0(dem_id,"_dem.tif")) %>% 
-  pull(filename)
-
-dem_list <- lapply(paste0("~/scratch/raster/arcticDEM/",dem_tiles), rast)
-
-selected_fire_perimeter_stereo <- project(selected_fire_perimeter,crs(dem_list[[1]])) %>% 
-  buffer(1000)
-
-cropped_dems <- lapply(dem_list,function(x) crop(x,ext(selected_fire_perimeter_stereo)))
-
-# Mosaic DEMS
-rsrc <- sprc(cropped_dems)
-dem_mos <- mosaic(rsrc)
-
-# Resample to 30m HLS UTM
-raster_grid_template <- rast(dem_mos)
-res(raster_grid_template) <- 30
-
-# Resample to 30m resolution using bilinear interpolation
-dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") %>% 
-  project(crs(selected_fire_perimeter))
-names(dem_30m) <- 'elevation'
-
-# export resampled DEM
-fname_dem_out <- paste0("~/data/raster/arcticDEM/",
-                        selected_fire_perimeter$fireid,
-                        "_dem_30m.tif")
-writeRaster(dem_30m,filename = fname_dem_out,overwrite = T)
-
-# Buffer the selected fire perimeter
-fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
-
-dnbr_in_perimeter <- rast_burn_severity %>% 
-  mask(fire_perimeter_buffered, updatevalue = NA) %>% 
-  crop(fire_perimeter_buffered)
-
-# 2. Execute spatial sampling ----
-fname_sample_points <- "~/data/feature_layers/sample_points.gpkg"
-
-# Perform condition check
-if (!file.exists(fname_sample_points)){
-  print("Creating random point sample... \n")
+# Apply data extraction to all fire perimeters
+for(i in 1:nrow(final_lut)) {
+  row <- final_lut[i, ]
   
-  # Set dNBR bin size for sampling (20 if dNBR * 1000)
-  binwidth <- 20
+  # extract fire peimeter attributes
+  UTM_TILE_ID <- row$opt_UTM_tile
+  year <- row$tst_year
+  FIRE_ID <- row$fireid
   
-  # get bins for the raster
-  bins <- seq(minmax(dnbr_in_perimeter)[1],minmax(dnbr_in_perimeter)[2],binwidth)
+  # Load burn severity rasters
+  severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
+                                 pattern = sprintf("^%s_%s_%s.*\\.tif$",
+                                                   severity_index,UTM_TILE_ID,year),
+                                 full.names = TRUE
+                                 )
+  rast_burn_severity <- rast(severity_rasters[1])
   
-  # Create binned raster for sampling
-  rast_binned <- classify(dnbr_in_perimeter,
-                          bins, 
-                          include.lowest=TRUE,
-                          brackets=TRUE)
+  # get fire perimter
+  selected_fire_perimeter <- fire_perimeters %>% 
+    filter(fireid  == FIRE_ID) %>%
+    project(crs(rast_burn_severity))
   
-  # Set proportion of sampled values per bin
-  frac_to_sample <- 0.01
+  # Load descals burned area raster for the selected fire
+  descals_tilename <- final_lut %>% 
+    filter(fireid  == TEST_ID) %>% 
+    select(descals_file)
   
-  # Create spatial point sample
-  sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
+  # read raster
+  descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",descals_tilename)) 
   
-  # Extract Descals et al. (2022) burn class to point
-  sample_points$descals_burned <- terra::extract(descals_rast_bin, sample_points, ID = F)
+  # Reclassify to binary burned area raster where 1 is burned that year (of selected fire perimeter), 0 not
+  year_value_descals <- selected_fire_perimeter$tst_year - 1990 # value 30 is for burned area in 2020
   
-  # Convert to sf
-  sample_points_sf <- st_as_sf(sample_points)
+  # ... and crop with reprojected fire perimeter (and 1km buffer)
+  descals_rast_bin <- terra::as.int(descals_rast == year_value_descals) %>% 
+    crop(buffer(
+      project(selected_fire_perimeter,crs(descals_rast))
+      ,1e3))
   
-  # Export points as gpkg
-  st_write(sample_points_sf, fname_sample_points,
-           layer = "sample_points", delete_layer = TRUE)
-}
+  # Reproject raster if necessary
+  if (crs(descals_rast_bin) != crs(selected_fire_perimeter)){
+    descals_rast_bin <- project(descals_rast_bin,
+                                crs(selected_fire_perimeter),
+                                method = "near")
+  }
+  
+  # Load DEM tiles for this fire perimeter
+  dem_tiles <- dem_lut %>% 
+    filter(fireid == FIRE_ID) %>% 
+    mutate(filename = paste0(dem_id,"_dem.tif")) %>% 
+    pull(filename)
+  
+  dem_list <- lapply(paste0("~/scratch/raster/arcticDEM/",dem_tiles), rast,
+                     drivers="GTiff")
+  
+  selected_fire_perimeter_stereo <- project(selected_fire_perimeter,
+                                            crs(dem_list[[1]])) %>% 
+    buffer(1000)
+  
+  cropped_dems <- lapply(dem_list,function(x) crop(x,ext(selected_fire_perimeter_stereo)))
+  
+  # Mosaic DEMS
+  rsrc <- sprc(cropped_dems)
+  dem_mos <- mosaic(rsrc)
+  
+  # Resample to 30m HLS UTM
+  raster_grid_template <- rast(dem_mos)
+  res(raster_grid_template) <- 30
+  
+  # Resample to 30m resolution using bilinear interpolation
+  dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") %>% 
+    project(crs(selected_fire_perimeter))
+  names(dem_30m) <- 'elevation'
+  
+  # export resampled DEM
+  fname_dem_out <- paste0("~/data/raster/arcticDEM/",
+                          FIRE_ID,
+                          "_dem_30m.tif")
+  writeRaster(dem_30m,filename = fname_dem_out,overwrite = T)
+  
+  # Buffer the selected fire perimeter
+  fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
+  
+  dnbr_in_perimeter <- rast_burn_severity %>% 
+    mask(fire_perimeter_buffered, updatevalue = NA) %>% 
+    crop(fire_perimeter_buffered)
+  
+  # 2. Execute spatial sampling ----
+  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points.gpkg",
+                                 FIRE_ID)
+  
+  # Perform condition check
+  if (!file.exists(fname_sample_points)){
+    print("Creating random point sample... \n")
+    
+    # Set dNBR bin size for sampling (20 if dNBR * 1000)
+    binwidth <- 20
+    
+    # get bins for the raster
+    bins <- seq(minmax(dnbr_in_perimeter)[1],minmax(dnbr_in_perimeter)[2],binwidth)
+    
+    # Create binned raster for sampling
+    rast_binned <- classify(dnbr_in_perimeter,
+                            bins, 
+                            include.lowest=TRUE,
+                            brackets=TRUE)
+    
+    # Set proportion of sampled values per bin
+    frac_to_sample <- 0.01
+    
+    # Create spatial point sample
+    sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
+    
+    # Extract Descals et al. (2022) burn class to point
+    sample_points$descals_burned <- terra::extract(descals_rast_bin, 
+                                                   sample_points, ID = F)
+    
+    # Convert to sf
+    sample_points_sf <- st_as_sf(sample_points)
+    
+    # Export points as gpkg
+    st_write(sample_points_sf, fname_sample_points,
+             layer = "sample_points", delete_layer = TRUE)
+  }
+  
+  print("Random point GPKG already exists, continue. \n")
+  
+} 
 
-print("Random point GPKG already exists, continue. \n")
+
+
 
 # 3. Run burn date assignment in python ----
 

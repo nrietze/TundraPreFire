@@ -457,7 +457,7 @@ def joblib_hls_preprocessing(files: list,
     start_time = time.time()
     
     pid = os.getpid()
-    logger = setup_logger(f"tmp/log_{pid}.txt")
+    logger = setup_logger(f"logs/log_{pid}.txt")
 
     original_name = os.path.basename(files[0])
 
@@ -547,7 +547,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     # Remove old joblib log files
-    for log_file in glob("tmp/log_*.txt"):
+    for log_file in glob("logs/log_*.txt"):
         os.remove(log_file)
     
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs

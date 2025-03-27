@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=arrayJob
-#SBATCH --time=0-10:00:00   ## days-hours:minutes:seconds
+#SBATCH --time=0-01:00:00   ## days-hours:minutes:seconds
 #SBATCH --array=0-19
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
@@ -19,16 +19,16 @@ UTM_TILEID_FILE="code/data_processing/tileid_file.txt"
 NUM_LINES=$(wc -l < "$UTM_TILEID_FILE")
 
 # Set number of tasks
-NUM_TASKS=20  # Should match the --array size
+NUM_TASKS=20  # (number of --arrays)
 
-# Compute chunk size (ceiling division)
+# Get number of lines to split per task
 CHUNK_SIZE=$(( (NUM_LINES + NUM_TASKS - 1) / NUM_TASKS ))
 
 # Compute start and end lines for this task
 START=$(( SLURM_ARRAY_TASK_ID * CHUNK_SIZE + 1 ))
 END=$(( START + CHUNK_SIZE - 1 ))
 
-# Extract lines for this task
+# Extract lines for this task and export to temporary file
 sed -n "${START},${END}p" "$UTM_TILEID_FILE" > tmp/task_${SLURM_ARRAY_TASK_ID}.txt
 
 # Execute HLS downloading script with the split UTM tile id file
@@ -39,8 +39,8 @@ sed -n "${START},${END}p" "$UTM_TILEID_FILE" > tmp/task_${SLURM_ARRAY_TASK_ID}.t
 # Execute HLS preprocessing script with the split UTM tile id file
 metrics='["NDVI","NDMI","NBR","GEMI"]'
 
-echo 'HLS preprocessing starting.'
-python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
+# echo 'HLS preprocessing starting.'
+# python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
 
 echo 'Burn severity calculation starting'
 python code/data_processing/slurm_calculate_burn_severity.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
