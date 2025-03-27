@@ -1,3 +1,4 @@
+# %%
 """
 Script to download and preprocess HLS data.
 - HLS data search
@@ -10,7 +11,7 @@ Author: Nils Rietze (nils.rietze@uzh.ch), github.com/nrietze
 Date: 15.01.2025 (last update of this docstring)
 """
 
-#%% Load packages
+# %% Load packages
 import os
 import sys
 import ast
@@ -537,6 +538,14 @@ if __name__ == "__main__":
         DATA_FOLDER = '~/data/' # on sciencecluster
         HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/" # Set original data paths
 
+    num_workers = (
+            int(os.environ.get("SLURM_CPUS_PER_TASK"))
+            if os.environ.get("SLURM_CPUS_PER_TASK")
+            else os.cpu_count()
+        )
+
+    multiprocessing.set_start_method('spawn')
+
     # Remove old joblib log files
     for log_file in glob("tmp/log_*.txt"):
         os.remove(log_file)
@@ -569,105 +578,81 @@ if __name__ == "__main__":
     with open(UTM_TILE_FILE, "r") as file:
         UTM_TILE_LIST = [line.strip() for line in file]
         
-    # UTM_TILE_LIST = ["54WXE","53WMU"] # for testing
-    
     # Execute preprocessing for each UTM tile
     # ----
+    # SLURM task ID for unique temp files
+    TASK_ID = os.environ.get("SLURM_ARRAY_TASK_ID", "0")
+    
+    # Constants
+    MAX_TIMEDELTA = 31
+    OUTPUT_DIR = '/scratch/nrietz/raster/hls/'
+    OUT_FOLDER = '/scratch/nrietz/raster/hls/processed/'
+    bit_nums = [0, 1, 2, 3, 4]  # Bits to mask out
+    num_workers = 4  # Adjust based on available CPUs
+    
+    # Precompute all (Granule, UTM tilename, year) combinations in a list
+    granule_jobs = []
+    
     for UTM_TILE_NAME in UTM_TILE_LIST:
-        print("Preprocessing HLS data for UTM tile: ", UTM_TILE_NAME)
-        
         if UTM_TILE_NAME:
             hls_granules_paths = [
-                sublist for sublist in hls_granules_paths if sublist and UTM_TILE_NAME in sublist[0]
+                sublist for sublist in hls_granules_paths if
+                sublist and UTM_TILE_NAME in sublist[0]
                 ]
         
-        # Execute preprocessing for each year
-        # ----
-        
-        # Filter fire perimeters that use this UTM tile
         fire_perimeters_in_utm = processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_NAME]
-        
-        # extract years of burning (one UTM tile can have multiple years)
         utm_years = fire_perimeters_in_utm.tst_year.unique()
         
-        # Loop through each year
         for year in utm_years:
-            
-            # For burn severity raster processing -
-            # Create time range from LUT to subset HLS granules temporally
-            if any(pattern in band_index for pattern in ["NBR","GEMI"]):
+            print(f"Processing UTM tile {UTM_TILE_NAME}, Year {year}")
 
-                # n d maximum offset from end of fire to search HLS imagery in the year before
-                MAX_TIMEDELTA = 31
-                
-                # Download pre-fire data first (because HLS downloading script just downloads for fire year)
-                TASK_ID = os.environ.get("SLURM_ARRAY_TASK_ID")
+            if any(pattern in band_index for pattern in ["NBR","GEMI"]):
+                # Get latest end date of fire in that year
+                latest_tile_fire_end = max(fire_perimeters_in_utm.ted_date)
+        
+                # Compute pre-fire search range
+                search_start_date_dynamic = (latest_tile_fire_end - pd.Timedelta(days=MAX_TIMEDELTA) - relativedelta(years=1)).strftime("%Y-%m-%d")
+                search_end_date_dynamic = f"{year-1}-10-31"
+        
+                # Run shell script to download pre-fire HLS data
                 temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
                 with open(temp_tile_file, "w") as temp_file:
                     temp_file.write(UTM_TILE_NAME + "\n")
-                
-                # Get latest end date of fire in that year
-                latest_tile_fire_end = max(fire_perimeters_in_utm.ted_date)
-
-                # Format dynamic date range
-                search_start_date_dynamic = (latest_tile_fire_end -
-                                             pd.Timedelta(days=MAX_TIMEDELTA) -
-                                             relativedelta(years=1)).strftime("%Y-%m-%d")
-                search_end_date_dynamic = f"{year-1}-10-31"
-                
-                # Execute bash command
-                download_script = "code/data_processing/getHLS.sh"
-                OUTPUT_DIR = '/scratch/nrietz/raster/hls/'
-                
-                subprocess.run(["bash", download_script, temp_tile_file,
-                                search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
-                
-                # Remove the temporary file
+        
+                subprocess.run(["bash", "code/data_processing/getHLS.sh", temp_tile_file, search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
                 os.remove(temp_tile_file)
-                
-                # Define time search window
-                START_DATE_POST = latest_tile_fire_end.strftime("%Y-%m-%dT%H:%M:%S")
-                START_DATE_PRE = (latest_tile_fire_end -
+        
+                # Define time ranges
+                START_DATE_PRE = (latest_tile_fire_end - 
                                   pd.Timedelta(days=MAX_TIMEDELTA) -
                                   relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
-
-                END_DATE_POST = f"{year}-10-31T23:59:59" 
-                #(latest_tile_fire_end + pd.Timedelta(days=MAX_TIMEDELTA)).strftime("%Y-%m-%dT%H:%M:%S")
-                END_DATE_PRE = f"{year-1}-10-31T23:59:59" 
-                #(latest_tile_fire_end +pd.Timedelta(days=MAX_TIMEDELTA)-relativedelta(years=1)).strftime("%Y-%m-%dT%H:%M:%S")
-
-                hls_granules_paths_post = search_files_by_doy_range(hls_granules_paths,
-                                                                    START_DATE_POST, END_DATE_POST)
-                hls_granules_paths_pre = search_files_by_doy_range(hls_granules_paths,
-                                                                   START_DATE_PRE, END_DATE_PRE)
+                END_DATE_PRE = f"{year-1}-10-31T23:59:59"
+                START_DATE_POST = latest_tile_fire_end.strftime("%Y-%m-%dT%H:%M:%S")
+                END_DATE_POST = f"{year}-10-31T23:59:59"
+        
+                # Search for granules
+                hls_granules_paths_pre = search_files_by_doy_range(
+                    hls_granules_paths, START_DATE_PRE, END_DATE_PRE)
+                hls_granules_paths_post = search_files_by_doy_range(
+                    hls_granules_paths, START_DATE_POST, END_DATE_POST)
                 
                 hls_granules_paths = hls_granules_paths_pre + hls_granules_paths_post
+    
+            # Flatten granules into a list of (granule_path, metadata)
+            for granule in hls_granules_paths:
+                granule_jobs.append((granule, UTM_TILE_NAME, year))
 
-            print(f"{len(hls_granules_paths)} granules found to process.")
-            
-            # define bits to mask out
-            """
-            7-6 = aerosols
-            5 = water
-            4 = snow/ice
-            3 = cloud shadow
-            2 = cloud/shadow adjacent
-            1 = cloud
-            0 = cirrus
-            """
-            bit_nums = [0,1,2,3,4]
-
-            # output directory
-            # OUT_FOLDER = '/data/nrietz/raster/hls/'
-            OUT_FOLDER = '/scratch/nrietz/raster/hls/processed/'
-            
-            num_workers = (
-                int(os.environ.get("SLURM_CPUS_PER_TASK"))
-                if os.environ.get("SLURM_CPUS_PER_TASK")
-                else os.cpu_count()
-            )
-
-            multiprocessing.set_start_method('spawn')
-            
-            Parallel(n_jobs=num_workers, backend='loky')(
-                delayed(joblib_hls_preprocessing)(files,band_index,bit_nums,OUT_FOLDER,OVERWRITE_DATA,skip_source=None) for files in hls_granules_paths)
+    print(f"Total granules to process: {len(granule_jobs)}")
+    
+    # Set up final processing function
+    def process_granule(granule, UTM_TILE_NAME, year):
+        granulename = os.path.basename(granule[0]).split(".")[3]
+        print(f"Processing granule {granulename} for UTM tile {UTM_TILE_NAME}, Year {year}")
+        joblib_hls_preprocessing(granule, band_index, bit_nums, 
+                                 OUT_FOLDER, OVERWRITE_DATA, skip_source=None)
+    
+    # Execute Joblib function
+    Parallel(n_jobs=num_workers, backend='loky')(
+        delayed(process_granule)(granule, UTM_TILE_NAME, year) for granule,
+        UTM_TILE_NAME, year in granule_jobs
+    )

@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=arrayJob
-#SBATCH --time=0-13:00:00   ## days-hours:minutes:seconds
+#SBATCH --time=0-10:00:00   ## days-hours:minutes:seconds
 #SBATCH --array=0-19
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
@@ -42,7 +42,7 @@ metrics='["NDVI","NDMI","NBR","GEMI"]'
 echo 'HLS preprocessing starting.'
 python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
 
-# echo 'Burn severity calculation starting'
-# python code/data_processing/slurm_calculate_burn_severity.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
+echo 'Burn severity calculation starting'
+python code/data_processing/slurm_calculate_burn_severity.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
 
 echo 'finished'

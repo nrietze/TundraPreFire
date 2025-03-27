@@ -57,7 +57,17 @@ def calculate_clear_pixel_percentage(data,
         
             # Crop to the polygon area
             image, _ = mask(src, [polygon_geom], crop=True)
-    
+
+        # Load corresponding water mask
+        water_mask_file = os.path.join(os.path.dirname(data),
+                                        os.path.basename(
+                                            replace_string_in_filename(data, "watermask")))
+        
+        with rio.open(water_mask_file) as watermask_src:
+            eometry = gpd.GeoSeries([polygon.geometry],crs = 4326)
+            polygon_geom = geometry.to_crs(watermask_src.crs).geometry.iloc[0]
+            water_mask, _ = mask(watermask_src, [mapping(polygon_geom)], crop=True)
+        
     # Apply function to memory loaded xarray
     elif isinstance(data, xr.DataArray):
         # Reproject polygon to match xarray CRS
@@ -264,7 +274,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                     date_postfire=postfire_date.strftime("%Y-%m-%d"),
                     index_names=index_names, utm_tileid=utm_tileid,
                     polygon=perimeter,
-                    MIN_VALID_PERCENTAGE=66,
+                    MIN_VALID_PERCENTAGE=1,
                     OUT_DIR=OUT_DIR
                 )
                 
@@ -301,6 +311,7 @@ if __name__ == "__main__":
     FN_VIIRS_CAVM_PERIMETERS = os.path.join(DATA_FOLDER,
                                             "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
     fire_polygons = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
+    fire_polygons = fire_polygons.loc[fire_polygons.tst_year>=2017]
     
     # Load UTM tiles from argument ingested through SLURM bash
     UTM_TILE_FILE = sys.argv[1]
