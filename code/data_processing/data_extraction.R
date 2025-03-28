@@ -180,6 +180,8 @@ for(i in 1:nrow(final_lut)) {
   year <- row$tst_year
   FIRE_ID <- row$fireid
   
+  print(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
+  
   # Load burn severity rasters
   severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
                                  pattern = sprintf("^%s_%s_%s.*\\.tif$",
@@ -241,28 +243,35 @@ for(i in 1:nrow(final_lut)) {
   res(raster_grid_template) <- 30
   
   # Resample to 30m resolution using bilinear interpolation
-  dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") %>% 
-    project(crs(selected_fire_perimeter))
+  dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") 
   names(dem_30m) <- 'elevation'
+  
+  # delete 2m DEM mosaic to free up space
+  rm(cropped_dems,dem_mos)
+  
+  # reproject
+  dem_30m_utm <- project(dem_30m,crs(selected_fire_perimeter))
   
   # export resampled DEM
   fname_dem_out <- paste0("~/data/raster/arcticDEM/",
                           FIRE_ID,
                           "_dem_30m.tif")
-  writeRaster(dem_30m,filename = fname_dem_out,overwrite = T)
+  writeRaster(dem_30m_utm,filename = fname_dem_out,overwrite = T)
+  
+  rm(dem_30m,dem_30m_utm)
   
   # Buffer the selected fire perimeter
   fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
   
   dnbr_in_perimeter <- rast_burn_severity %>% 
     mask(fire_perimeter_buffered, updatevalue = NA) %>% 
-    crop(fire_perimeter_buffered)
+    crop(fire_perimeter_buffered) * 1000
   
   # 2. Execute spatial sampling ----
   fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points.gpkg",
                                  FIRE_ID)
   
-  # Perform condition check
+  # Sample points only when gpkg file doens't exist
   if (!file.exists(fname_sample_points)){
     print("Creating random point sample... \n")
     
@@ -270,7 +279,9 @@ for(i in 1:nrow(final_lut)) {
     binwidth <- 20
     
     # get bins for the raster
-    bins <- seq(minmax(dnbr_in_perimeter)[1],minmax(dnbr_in_perimeter)[2],binwidth)
+    bins <- seq(minmax(dnbr_in_perimeter)[1],
+                minmax(dnbr_in_perimeter)[2],
+                binwidth)
     
     # Create binned raster for sampling
     rast_binned <- classify(dnbr_in_perimeter,
@@ -304,7 +315,7 @@ for(i in 1:nrow(final_lut)) {
 
 
 # 3. Run burn date assignment in python ----
-
+system("conda run -n lpdaac_vitals python your_script.py")
 
 # 4. Stack rasters and extract data----
 
