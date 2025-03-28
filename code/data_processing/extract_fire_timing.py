@@ -12,7 +12,6 @@ import xarray as xr
 import rioxarray as rxr
 import rasterio as rio
 
-
 # %% 0. Configure functions
 def extract_datetime(PATH):
     FN = os.path.basename(PATH)
@@ -94,9 +93,9 @@ gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers","*_sample_points.gpkg
 #%% 2. Apply burn date extraction to all fire perimeters
 for path in gpkg_list:
     fname = os.path.basename(path)
-    fname_out = re.sub(r"\\.gpkg$", r"_burn_date.gpkg", path)
+    fname_out = re.sub(r"\\*.gpkg$", r"_burn_date.gpkg", path)
     
-    FIRE_ID = fname.split("_")[0]
+    FIRE_ID = int(fname.split("_")[0])
 
     print(f"Extracting time of burn for fire: {FIRE_ID}")
     
