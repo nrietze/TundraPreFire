@@ -10,6 +10,8 @@ import ee
 import geemap
 import datetime
 import os
+import subprocess
+import time
 from tqdm import tqdm
 import platform
 from glob import glob
@@ -185,6 +187,9 @@ def fun_timeband(img):
 
 # %% Run operations on GEE cloud
 
+# [temporary] subsets for testing
+fire_polygons = fire_polygons[fire_polygons["fireid"].isin([17548, 10792, 14664])]
+
 # Buffer all fire perimeters by 2km to avoid clipping data from perimeter edge
 for i in fire_polygons.index:
     perimeter = fire_polygons.loc[[i]]
@@ -266,12 +271,36 @@ for i in fire_polygons.index:
                                                 region = select_roi, #['coordinates'][0],
                                                 crs = EPSG)
     else:
-        geemap.ee_export_image_collection(imgCol_mosaic,
-                                          out_dir=OUT_FOLDER,
-                                          filenames = FILENAMES,
-                                          scale = PIXEL_RESOLUTION,
-                                          region = select_roi,
-                                          crs = EPSG)
+        # Export as separate tiles for large fire perimeters
+        if perimeter.farea.item() > 500:
+            grid = geemap.fishnet(aoi, rows=2, cols=2)  # Adjust the number of tiles
+            
+            # Loop through each tile and export separately
+            for i, tile in enumerate(grid):
+                geemap.ee_export_image_collection(imgCol_mosaic,
+                                                  out_dir=OUT_FOLDER,
+                                                  filenames = FILENAMES + f"_tile_{i}",
+                                                  scale = PIXEL_RESOLUTION,
+                                                  region = tile.geometry(),
+                                                  crs = EPSG)
+
+            # wait a moment for download to finish
+            time.sleep(20) #seconds
+            tile_pattern = os.path.join(OUT_FOLDER,f"{FIREID}_tile_*.tif")
+            
+            # Get a list of all matching .tif files
+            tile_files = glob(tile_pattern)
+            print(tile_files)
+            # Merge tiled tif to one
+            #subprocess.run(["gdal_merge.py", "-o", "merged.tif", "-of", "GTiff"] + tile_files, check=True)
+            break
+        else:
+            geemap.ee_export_image_collection(imgCol_mosaic,
+                                              out_dir=OUT_FOLDER,
+                                              filenames = FILENAMES,
+                                              scale = PIXEL_RESOLUTION,
+                                              region = select_roi,
+                                              crs = EPSG)
         
     print("done.")
 

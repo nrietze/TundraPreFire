@@ -120,12 +120,15 @@ for path in gpkg_list:
                                  perimeter.ted_month.item(),
                                  perimeter.ted_day.item())
     
+    # set end date to +1 day for single-day burns
+    end_date = end_date + pd.Timedelta(days=1) if start_date == end_date else end_date
+
     # filter sub-daily perimeters that are within the fire's start and end dates
     cond = np.logical_and(df_viirs_sub_daily.datetime >= start_date,
                           df_viirs_sub_daily.datetime <= end_date)
     
     df_viirs_filtered = df_viirs_sub_daily[cond]
-    
+
     # Load a fire perimeter file for CRS info
     sample_perimeters = gpd.read_file(df_viirs_filtered.iloc[0,0])
     

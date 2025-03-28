@@ -2,7 +2,7 @@ library(terra)
 library(sf)
 library(tidyterra)
 library(rts)
-#library(gt)
+# library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
@@ -11,7 +11,7 @@ print(getwd())
 
 set.seed(10)
 
-# A. Configure functions ----
+# 0. Configure functions ----
 # ===========================.
 
 sample_dnbr_points <- function(raster, sample_pct = 0.10) {
@@ -133,7 +133,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
 }
 
 
-# B. Loading and preparing data: ----
+# 1. Loading and preparing data: ----
 # ===================================.
 
 # Set name of severity index to extract data for
@@ -168,8 +168,8 @@ fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
-# C. Run data extraction ----
-#============================.
+# 2. Execute spatial sampling ----
+#=================================.
 
 # Apply data extraction to all fire perimeters
 for(i in 1:nrow(final_lut)) {
@@ -195,28 +195,36 @@ for(i in 1:nrow(final_lut)) {
     filter(fireid  == FIRE_ID) %>%
     project(crs(rast_burn_severity))
   
-  # Load descals burned area raster for the selected fire
-  descals_tilename <- final_lut %>% 
-    filter(fireid  == TEST_ID) %>% 
-    select(descals_file)
+  # Check if fire extent is above Arctic circle
+  min_lat <- ext(project(selected_fire_perimeter, "EPSG:4326"))[3]
+  is_above_arctic <- min_lat > 66.56
   
-  # read raster
-  descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",descals_tilename)) 
-  
-  # Reclassify to binary burned area raster where 1 is burned that year (of selected fire perimeter), 0 not
-  year_value_descals <- selected_fire_perimeter$tst_year - 1990 # value 30 is for burned area in 2020
-  
-  # ... and crop with reprojected fire perimeter (and 1km buffer)
-  descals_rast_bin <- terra::as.int(descals_rast == year_value_descals) %>% 
-    crop(buffer(
-      project(selected_fire_perimeter,crs(descals_rast))
-      ,1e3))
-  
-  # Reproject raster if necessary
-  if (crs(descals_rast_bin) != crs(selected_fire_perimeter)){
-    descals_rast_bin <- project(descals_rast_bin,
-                                crs(selected_fire_perimeter),
-                                method = "near")
+  # Prepare Descals et al. (2022) burned area maps if available
+  if (is_above_arctic){
+    
+    # Load descals burned area raster for the selected fire
+    descals_tilename <- final_lut %>% 
+      filter(fireid  == FIRE_ID) %>% 
+      select(descals_file)
+    
+    # read raster
+    descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",descals_tilename)) 
+    
+    # Reclassify to binary burned area raster where 1 is burned that year (of selected fire perimeter), 0 not
+    year_value_descals <- year - 1990 # value 30 is for burned area in 2020
+    
+    # ... and crop with reprojected fire perimeter (and 1km buffer)
+    descals_rast_bin <- terra::as.int(descals_rast == year_value_descals) %>% 
+      crop(buffer(
+        project(selected_fire_perimeter,crs(descals_rast))
+        ,1e3))
+    
+    # Reproject raster if necessary
+    if (crs(descals_rast_bin) != crs(selected_fire_perimeter)){
+      descals_rast_bin <- project(descals_rast_bin,
+                                  crs(selected_fire_perimeter),
+                                  method = "near")
+    }
   }
   
   # Load DEM tiles for this fire perimeter
@@ -232,7 +240,8 @@ for(i in 1:nrow(final_lut)) {
                                             crs(dem_list[[1]])) %>% 
     buffer(1000)
   
-  cropped_dems <- lapply(dem_list,function(x) crop(x,ext(selected_fire_perimeter_stereo)))
+  cropped_dems <- lapply(dem_list,
+                         function(x) crop(x,ext(selected_fire_perimeter_stereo)))
   
   # Mosaic DEMS
   rsrc <- sprc(cropped_dems)
@@ -267,7 +276,6 @@ for(i in 1:nrow(final_lut)) {
     mask(fire_perimeter_buffered, updatevalue = NA) %>% 
     crop(fire_perimeter_buffered) * 1000
   
-  # 2. Execute spatial sampling ----
   fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points.gpkg",
                                  FIRE_ID)
   
@@ -295,9 +303,13 @@ for(i in 1:nrow(final_lut)) {
     # Create spatial point sample
     sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
     
-    # Extract Descals et al. (2022) burn class to point
-    sample_points$descals_burned <- terra::extract(descals_rast_bin, 
-                                                   sample_points, ID = F)
+    if (is_above_arctic){
+      # Extract Descals et al. (2022) burn class to point
+      sample_points$descals_burned <- terra::extract(descals_rast_bin, 
+                                                     sample_points, ID = F)
+    } else {
+      sample_points$descals_burned <- 99
+    }
     
     # Convert to sf
     sample_points_sf <- st_as_sf(sample_points)
@@ -309,186 +321,208 @@ for(i in 1:nrow(final_lut)) {
   
   print("Random point GPKG already exists, continue. \n")
   
-} 
-
-
-
+}
 
 # 3. Run burn date assignment in python ----
-system("conda run -n lpdaac_vitals python your_script.py")
+# ==========================================.
+# Run on python instance on S3IT
+
+# ...or use below if on local machine
+
+# give permission: chmod +x code/data_processing/run_burn_date_extraction.sh
+# system("code/data_processing/run_burn_date_extraction.sh")
 
 # 4. Stack rasters and extract data----
-
-# Load sample points with burn dates
-sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
-  project(crs(rast_burn_severity)) %>% 
-  mutate(ObservationID = 1:nrow(.))
-
-## a. HLS spectral indices ----
-
-# Check if filename exists and reprocessing is activated
-filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
-
-# only stack rasters if needed (takes a while)
-if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
-  print("Stacking and extracting spectral index data... \n")
+# =====================================.
+for(i in 1:nrow(final_lut)) {
+  row <- final_lut[i, ]
   
-  HLS_DIR <- "~/data/raster/hls/"
-  image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
+  # extract fire perimeter attributes
+  UTM_TILE_ID <- row$opt_UTM_tile
+  year <- row$tst_year
+  FIRE_ID <- row$fireid
   
-  # create raster time series object
-  rt <- rts(image_stack, time(image_stack))
+  print(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
   
-  # Extract spectral index time series at each sample point
-  df_spectral_index <- terra::extract(rt, sample_points) %>%
-    t() %>%
-    as_tibble()
+  # Load burn severity rasters
+  severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
+                                 pattern = sprintf("^%s_%s_%s.*\\.tif$",
+                                                   severity_index,UTM_TILE_ID,year),
+                                 full.names = TRUE)
+  rast_burn_severity <- rast(severity_rasters[1])
   
-  # Export as table
-  write.csv2(df_spectral_index,paste0(TABLE_DIR,filename))
-}
-
-## b. Landsat-8 LST ----
-
-# Check if filename exists and reprocessing is activated
-filename <- sprintf("LST_sampled_%s_%s.csv",UTM_TILE_ID,year)
-
-# only stack rasters if needed (takes a while)
-if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
-  print("Stacking and extracting LST data... \n")
+  # Load sample points with burn dates
+  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
+                                 FIRE_ID)
+  sample_points <- vect(fname_sample_points) %>% 
+    project(crs(rast_burn_severity)) %>% 
+    mutate(ObservationID = 1:nrow(.))
   
-  # List LST tiffs
-  LS8_DIR <- "~/data/raster/landsat-8_9/"
-  lst_files <- list.files(LS8_DIR,pattern = "*.tif")
+  ## a. HLS spectral indices ----
   
-  # Load LST rasters to list
-  lst_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIR)
-  lst_time_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIME)
+  # Check if filename exists and reprocessing is activated
+  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
   
-  # Concatenate as single raster 
-  lst <- rast(lst_list) %>% project(crs(rast_burn_severity))
+  # only stack rasters if needed (takes a while)
+  if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
+    print("Stacking and extracting spectral index data... \n")
+    
+    HLS_DIR <- "~/scratch/raster/hls/processed/"
+    image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
+    
+    # create raster time series object
+    rt <- rts(image_stack, time(image_stack))
+    
+    # Extract spectral index time series at each sample point
+    df_spectral_index <- terra::extract(rt, sample_points) %>%
+      t() %>%
+      as_tibble()
+    
+    # Export as table
+    write.csv2(df_spectral_index,paste0(TABLE_DIR,filename))
+  }
   
-  # Extract dates and format to date
-  lst_dates <- lapply(lst_time_list,get_ls_datetime)
-  lst_dates_df <- data.frame(datenum = unlist(lst_dates)) %>% 
-    mutate(date = as.Date(datenum, origin = "1970-01-01"))
+  ## b. Landsat-8 LST ----
   
-  # assign time dimension to raster stack
-  terra::time(lst, "days") <- lst_dates_df$date
+  # Check if filename exists and reprocessing is activated
+  filename <- sprintf("LST_sampled_%s_%s.csv",UTM_TILE_ID,year)
   
-  # Remove duplicate LST rasters
-  n <- time(lst)
-  dup.idx <- which(duplicated(n))
-  lst <- lst[[-dup.idx]]
+  # only stack rasters if needed (takes a while)
+  if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
+    print("Stacking and extracting LST data... \n")
+    
+    # List LST tiffs
+    LS8_DIR <- "~/scratch/raster/landsat8/"
+    lst_files <- list.files(LS8_DIR,pattern = paste0("^", FIRE_ID, ".*\\.tif$"))
+    
+    # Load LST rasters to list
+    lst_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIR)
+    lst_time_list <- lapply(paste0(LS8_DIR, lst_files), function(fn) rast(fn)$TIME)
+    
+    # Concatenate as single raster 
+    lst <- rast(lst_list) %>% project(crs(rast_burn_severity))
+    
+    # Extract dates and format to date
+    lst_dates <- lapply(lst_time_list,get_ls_datetime)
+    lst_dates_df <- data.frame(datenum = unlist(lst_dates)) %>% 
+      mutate(date = as.Date(datenum, origin = "1970-01-01"))
+    
+    # assign time dimension to raster stack
+    terra::time(lst, "days") <- lst_dates_df$date
+    
+    # Remove duplicate LST rasters
+    n <- time(lst)
+    dup.idx <- which(duplicated(n))
+    lst <- lst[[-dup.idx]]
+    
+    # Convert raster stack to time series stack
+    rt_lst <- rts(lst, time(lst))
+    
+    # Extract LST time series at each sample point
+    df_lst <- terra::extract(rt_lst, sample_points) %>%
+      t() %>%
+      as_tibble()
+    
+    # Export as table
+    write.csv2(df_lst,paste0(TABLE_DIR,filename))
+  }
   
-  # Convert raster stack to time series stack
-  rt_lst <- rts(lst, time(lst))
+  # 5. Filter and format sampled data ----
   
-  # Extract LST time series at each sample point
-  df_lst <- terra::extract(rt_lst, sample_points) %>%
-    t() %>%
-    as_tibble()
+  # Set name of filtered and formatted dataframe
+  fn_filtered_df <- sprintf("data/tables/%s_filtered_%sth_pctile.csv",
+                            index_name,pct_cutoff*100)
   
-  # Export as table
-  write.csv2(df_lst,paste0(TABLE_DIR,filename))
-}
-
-
-# 5. Filter and format sampled data ----
-
-# Set name of filtered and formatted dataframe
-fn_filtered_df <- sprintf("data/tables/%s_filtered_%sth_pctile.csv",
-                          index_name,pct_cutoff*100)
-
-# Check if data frame exists or needs to be overwritten
-if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
-  print("Filtering and formatting raster data... \n")
-  
-  # Extract dNBR at random points 
-  dnbr_sample <- terra::extract(rast_burn_severity, sample_points,
-                                ID = FALSE, xy = TRUE)
-  
-  # Load NDVI and NDMI time series at points 
-  df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample)
-  df_ndvi <- read_hls_data_frames("NDVI",UTM_TILE_ID,year,sample_points, dnbr_sample)
-  df_lst <- read_hls_data_frames("LST",UTM_TILE_ID,year,sample_points, dnbr_sample)
-  
-  df_lst <- df_lst %>%
-    mutate(Time = as.Date(Time))
-  
-  # Concatenate the data frames
-  df_hls <- df_ndmi %>% 
-    mutate(NDVI = df_ndvi$index_name) %>% 
-    rename(NDMI = index_name) %>% 
-    mutate(date = as.Date(Time))
-  
-  # Compute daily means
-  df_daily_spectral_index <- df_hls %>% 
-    group_by(date, ObservationID) %>% 
-    summarise(DailyMeanNDMI = mean(NDMI, na.rm = TRUE),
-              DailyMeanNDVI = mean(NDVI, na.rm = TRUE),
-              burn_severity = first(rast_burn_severity),
-              burn_date = first(burn_date),
-              descals_burn_class = first(descals_burn_class))
-  
-  # get nr. of valid observations
-  valid_counts_by_id <- df_daily_spectral_index %>%
-    group_by(ObservationID) %>%
-    summarise(valid_count = sum(!is.na(DailyMeanNDMI)))
-  
-  thr_nobs <- quantile(valid_counts_by_id$valid_count,pct_cutoff , na.rm = TRUE)
-  
-  # Filter out observations with fewer than X observations
-  df_filtered <- df_daily_spectral_index %>%
-    inner_join(valid_counts_by_id, by = "ObservationID") %>%
-    filter(valid_count >= thr_nobs,
-           year(date) == 2020) %>% 
-    select(-valid_count) %>% 
-    # Flag pre- & post-fire observations
-    mutate(
-      burn_date = ymd_hms(burn_date),
-      BeforeBurnDate = date < burn_date
-    )
-  
-  # Extract topography at random points 
-  elevation_sample <- terra::extract(dem_30m, sample_points, bind = TRUE) %>% 
-    as.data.frame() %>% select(c(ObservationID,elevation))
-  
-  # Slope
-  slope <- terrain(dem_30m,'slope')
-  slope_sample <- terra::extract(slope,sample_points, bind = TRUE) %>% 
-    as.data.frame() %>% select(c(ObservationID,slope))
-  
-  # Aspect
-  aspect <- terrain(dem_30m,'aspect')
-  northness <- cos(aspect * pi/180)
-  names(northness) <- 'northness'
-  
-  eastness <- sin(aspect * pi/180)
-  names(eastness) <- 'eastness'
-  
-  northness_sample <- terra::extract(northness, sample_points, bind = TRUE) %>% 
-    as.data.frame() %>% select(c(ObservationID,northness))
-  eastness_sample <- terra::extract(eastness, sample_points, bind = TRUE) %>% 
-    as.data.frame() %>% select(c(ObservationID,eastness))
-  
-  # combine all DEM data
-  df_list <- list(elevation_sample, slope_sample, northness_sample,eastness_sample)
-  
-  # merge all data frames in list
-  dem_sample <- df_list %>% reduce(full_join, by='ObservationID')
-  
-  df_filtered <- full_join(df_filtered, dem_sample,by = "ObservationID")
-  
-  # Merge with LST data
-  df_filtered <- df_filtered %>% 
-    left_join(df_lst %>% select(ObservationID, Time, index_name), 
-              by = c("ObservationID" = "ObservationID", 
-                     "date" = "Time")) %>%
-    rename(LST = index_name) # Rename index_name to LST
-  
-  # Write filtered data frame to CSV
-  write.csv2(df_filtered,
-             sprintf("data/tables/merged_filtered_%sth_pctile.csv",
-                     pct_cutoff*100))
+  # Check if data frame exists or needs to be overwritten
+  if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
+    print("Filtering and formatting raster data... \n")
+    
+    # Extract dNBR at random points 
+    dnbr_sample <- terra::extract(rast_burn_severity, sample_points,
+                                  ID = FALSE, xy = TRUE)
+    
+    # Load NDVI and NDMI time series at points 
+    df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample)
+    df_ndvi <- read_hls_data_frames("NDVI",UTM_TILE_ID,year,sample_points, dnbr_sample)
+    df_lst <- read_hls_data_frames("LST",UTM_TILE_ID,year,sample_points, dnbr_sample)
+    
+    df_lst <- df_lst %>%
+      mutate(Time = as.Date(Time))
+    
+    # Concatenate the data frames
+    df_hls <- df_ndmi %>% 
+      mutate(NDVI = df_ndvi$index_name) %>% 
+      rename(NDMI = index_name) %>% 
+      mutate(date = as.Date(Time))
+    
+    # Compute daily means
+    df_daily_spectral_index <- df_hls %>% 
+      group_by(date, ObservationID) %>% 
+      summarise(DailyMeanNDMI = mean(NDMI, na.rm = TRUE),
+                DailyMeanNDVI = mean(NDVI, na.rm = TRUE),
+                burn_severity = first(rast_burn_severity),
+                burn_date = first(burn_date),
+                descals_burn_class = first(descals_burn_class))
+    
+    # get nr. of valid observations
+    valid_counts_by_id <- df_daily_spectral_index %>%
+      group_by(ObservationID) %>%
+      summarise(valid_count = sum(!is.na(DailyMeanNDMI)))
+    
+    thr_nobs <- quantile(valid_counts_by_id$valid_count,pct_cutoff , na.rm = TRUE)
+    
+    # Filter out observations with fewer than X observations
+    df_filtered <- df_daily_spectral_index %>%
+      inner_join(valid_counts_by_id, by = "ObservationID") %>%
+      filter(valid_count >= thr_nobs,
+             year(date) == 2020) %>% 
+      select(-valid_count) %>% 
+      # Flag pre- & post-fire observations
+      mutate(
+        burn_date = ymd_hms(burn_date),
+        BeforeBurnDate = date < burn_date
+      )
+    
+    # Extract topography at random points 
+    elevation_sample <- terra::extract(dem_30m, sample_points, bind = TRUE) %>% 
+      as.data.frame() %>% select(c(ObservationID,elevation))
+    
+    # Slope
+    slope <- terrain(dem_30m,'slope')
+    slope_sample <- terra::extract(slope,sample_points, bind = TRUE) %>% 
+      as.data.frame() %>% select(c(ObservationID,slope))
+    
+    # Aspect
+    aspect <- terrain(dem_30m,'aspect')
+    northness <- cos(aspect * pi/180)
+    names(northness) <- 'northness'
+    
+    eastness <- sin(aspect * pi/180)
+    names(eastness) <- 'eastness'
+    
+    northness_sample <- terra::extract(northness, sample_points, bind = TRUE) %>% 
+      as.data.frame() %>% select(c(ObservationID,northness))
+    eastness_sample <- terra::extract(eastness, sample_points, bind = TRUE) %>% 
+      as.data.frame() %>% select(c(ObservationID,eastness))
+    
+    # combine all DEM data
+    df_list <- list(elevation_sample, slope_sample, northness_sample,eastness_sample)
+    
+    # merge all data frames in list
+    dem_sample <- df_list %>% reduce(full_join, by='ObservationID')
+    
+    df_filtered <- full_join(df_filtered, dem_sample,by = "ObservationID")
+    
+    # Merge with LST data
+    df_filtered <- df_filtered %>% 
+      left_join(df_lst %>% select(ObservationID, Time, index_name), 
+                by = c("ObservationID" = "ObservationID", 
+                       "date" = "Time")) %>%
+      rename(LST = index_name) # Rename index_name to LST
+    
+    # Write filtered data frame to CSV
+    write.csv2(df_filtered,
+               sprintf("data/tables/merged_filtered_%sth_pctile.csv",
+                       pct_cutoff*100))
+  }
 }
