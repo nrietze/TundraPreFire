@@ -188,7 +188,7 @@ def fun_timeband(img):
 # %% Run operations on GEE cloud
 
 # [temporary] subsets for testing
-fire_polygons = fire_polygons[fire_polygons["fireid"].isin([17548, 10792, 14664])]
+# fire_polygons = fire_polygons[fire_polygons["fireid"].isin([17548, 10792, 14664])]
 
 # Buffer all fire perimeters by 2km to avoid clipping data from perimeter edge
 for i in fire_polygons.index:
@@ -316,9 +316,11 @@ for i in fire_polygons.index:
                 # Search tiles for this date and fire ID
                 pattern = f"{fname}_tile_*.tif"
                 tile_files = glob(os.path.join(OUT_FOLDER,pattern))
+
+                out_fname = os.path.join(OUT_FOLDER,f"{fname}.tif")
                 
                 # Merge tiled tif to one
-                subprocess.run(["gdal_merge.py", "-o", f"{fname}.tif", "-of", "GTiff"] + tile_files, check=True)
+                subprocess.run(["gdal_merge.py", "-q", "-o", out_fname, "-of", "GTiff"] + tile_files, check=True)
                 
                 # Delete tile files after merging
                 # for file in tile_files:

@@ -1,13 +1,16 @@
 #...
+module load R
+module load mamba
 source activate lpdaac_vitals
 
 SLURM_ARRAY_TASK_ID=$1
 
 cd ~/TundraPreFire/
 
-echo 'Slurm testing starting.'
-# Execute HLS preprocessing script with the split UTM tile id file
-echo 'Burn severity calculation starting'
-python code/data_processing/slurm_calculate_burn_severity.py tmp/task_test.txt
+echo 'Sampling points in scar.'
+Rscript code/data_processing/data_extraction_part1.R
+
+echo 'Extracting burn date.'
+python code/data_processing/extract_fire_timing.py
 
 echo 'finished'
