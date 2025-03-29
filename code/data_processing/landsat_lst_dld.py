@@ -273,27 +273,38 @@ for i in fire_polygons.index:
     else:
         # Export as separate tiles for large fire perimeters
         if perimeter.farea.item() > 500:
-            grid = geemap.fishnet(aoi, rows=2, cols=2)  # Adjust the number of tiles
+            grid = geemap.fishnet(select_roi, rows=2, cols=2)
+            
+            # Convert FeatureCollection to list (to iterate)
+            grid_list = grid.toList(grid.size())
             
             # Loop through each tile and export separately
-            for i, tile in enumerate(grid):
+            for i in range(grid.size().getInfo()):
+                tile = ee.Feature(grid_list.get(i)).geometry()
+                
                 geemap.ee_export_image_collection(imgCol_mosaic,
                                                   out_dir=OUT_FOLDER,
-                                                  filenames = FILENAMES + f"_tile_{i}",
+                                                  filenames = [f"{name}_tile_{i}" for name in FILENAMES],
                                                   scale = PIXEL_RESOLUTION,
-                                                  region = tile.geometry(),
+                                                  region = tile,
                                                   crs = EPSG)
 
             # wait a moment for download to finish
             time.sleep(20) #seconds
-            tile_pattern = os.path.join(OUT_FOLDER,f"{FIREID}_tile_*.tif")
             
-            # Get a list of all matching .tif files
-            tile_files = glob(tile_pattern)
-            print(tile_files)
-            # Merge tiled tif to one
-            #subprocess.run(["gdal_merge.py", "-o", "merged.tif", "-of", "GTiff"] + tile_files, check=True)
-            break
+            # Iterate through all scenes and merge tiles
+            for fname in FILENAMES:
+                
+                # Search tiles for this date and fire ID
+                pattern = f"{fname}_tile_*.tif"
+                tile_files = glob(os.path.join(OUT_FOLDER,pattern))
+                
+                # Merge tiled tif to one
+                subprocess.run(["gdal_merge.py", "-o", f"{fname}.tif", "-of", "GTiff"] + tile_files, check=True)
+                
+                # Delete tile files after merging
+                # for file in tile_files:
+                #     os.remove(file)
         else:
             geemap.ee_export_image_collection(imgCol_mosaic,
                                               out_dir=OUT_FOLDER,
