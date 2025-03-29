@@ -262,7 +262,12 @@ for i in fire_polygons.index:
     datelist = dates.getInfo()
     FILENAMES = [f"{FILENAME_PREFIX}{datetime.datetime.fromtimestamp(d['value'] / 1000).strftime('%Y-%m-%d')}" for d in datelist]
     
-    if EXPORT_TO_DRIVE:
+    full_filepaths = [os.path.join(OUT_FOLDER,fn) for fn in FILENAMES]
+    
+    a_exist = [f for f in full_filepaths if os.path.isfile(f)]
+    a_non_exist = list(set(a_exist) ^ set(full_filepaths))
+    
+    if EXPORT_TO_DRIVE and a_non_exist:
         geemap.ee_export_image_collection_to_drive(imgCol_mosaic,
                                                 folder = "L8_C2L2_LST",
                                                 fileNamePrefix = FILENAME_PREFIX,
@@ -270,7 +275,7 @@ for i in fire_polygons.index:
                                                 maxPixels = 1e13,
                                                 region = select_roi, #['coordinates'][0],
                                                 crs = EPSG)
-    else:
+    elif a_non_exist:
         # Export as separate tiles for large fire perimeters
         if perimeter.farea.item() > 500:
             grid = geemap.fishnet(select_roi, rows=2, cols=2)
