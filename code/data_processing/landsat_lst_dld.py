@@ -255,9 +255,6 @@ for i in fire_polygons.index:
     imgCol_mosaic = ee.ImageCollection(ee.List(dates.iterate(fun_mosaic, ini)))
     imgCol_mosaic = imgCol_mosaic.map(fun_timeband)
 
-    # Download entire image collection
-    print("Exporting LSt data...")
-    
     # construct list of filenames with image date
     datelist = dates.getInfo()
     FILENAMES = [f"{FILENAME_PREFIX}{datetime.datetime.fromtimestamp(d['value'] / 1000).strftime('%Y-%m-%d')}" for d in datelist]
@@ -268,7 +265,10 @@ for i in fire_polygons.index:
     a_exist = [f for f in full_filepaths if os.path.isfile(f)]
     a_non_exist = list(set(a_exist) ^ set(full_filepaths))
     
+    # Download entire image collection
     if EXPORT_TO_DRIVE and a_non_exist:
+        print("Exporting LST data to Google drive...\n")
+        
         geemap.ee_export_image_collection_to_drive(imgCol_mosaic,
                                                 folder = "L8_C2L2_LST",
                                                 fileNamePrefix = FILENAME_PREFIX,
@@ -279,6 +279,8 @@ for i in fire_polygons.index:
     elif a_non_exist:
         # Export as separate tiles for large fire perimeters
         if perimeter.farea.item() > 500:
+            print("Downloading LST data for large fire scar via GEE... \n")
+            
             grid = geemap.fishnet(select_roi, rows=2, cols=2)
             
             # Convert FeatureCollection to list (to iterate)
@@ -309,6 +311,7 @@ for i in fire_polygons.index:
             
             # Iterate through all scenes and merge tiles
             for fname in FILENAMES:
+                print("Merging LST tiles for large fire scar to one file... \n")
                 
                 # Search tiles for this date and fire ID
                 pattern = f"{fname}_tile_*.tif"
@@ -321,6 +324,7 @@ for i in fire_polygons.index:
                 # for file in tile_files:
                 #     os.remove(file)
         else:
+            print("Downloading LST data via GEE... \n")
             geemap.ee_export_image_collection(imgCol_mosaic,
                                               out_dir=OUT_FOLDER,
                                               filenames = FILENAMES,
