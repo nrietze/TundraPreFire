@@ -262,8 +262,9 @@ for i in fire_polygons.index:
     datelist = dates.getInfo()
     FILENAMES = [f"{FILENAME_PREFIX}{datetime.datetime.fromtimestamp(d['value'] / 1000).strftime('%Y-%m-%d')}" for d in datelist]
     
-    full_filepaths = [os.path.join(OUT_FOLDER,fn) for fn in FILENAMES]
+    full_filepaths = [os.path.join(OUT_FOLDER,fn+ ".tif") for fn in FILENAMES]
     
+    # check if files already exist to skip GEE download
     a_exist = [f for f in full_filepaths if os.path.isfile(f)]
     a_non_exist = list(set(a_exist) ^ set(full_filepaths))
     
@@ -285,14 +286,23 @@ for i in fire_polygons.index:
             
             # Loop through each tile and export separately
             for i in range(grid.size().getInfo()):
-                tile = ee.Feature(grid_list.get(i)).geometry()
+                TILE_FILENAMES = [f"{name}_tile_{i}" for name in FILENAMES]
                 
-                geemap.ee_export_image_collection(imgCol_mosaic,
-                                                  out_dir=OUT_FOLDER,
-                                                  filenames = [f"{name}_tile_{i}" for name in FILENAMES],
-                                                  scale = PIXEL_RESOLUTION,
-                                                  region = tile,
-                                                  crs = EPSG)
+                # Check if tile files exist to skip download
+                full_filepaths = [os.path.join(OUT_FOLDER,fn + ".tif") for fn in TILE_FILENAMES]
+                a_exist = [f for f in full_filepaths if os.path.isfile(f)]
+                a_non_exist = list(set(a_exist) ^ set(full_filepaths))
+                
+                # run tile download only when there are missing tiles
+                if a_non_exist:
+                    tile = ee.Feature(grid_list.get(i)).geometry()
+                    
+                    geemap.ee_export_image_collection(imgCol_mosaic,
+                                                    out_dir=OUT_FOLDER,
+                                                    filenames = TILE_FILENAMES,
+                                                    scale = PIXEL_RESOLUTION,
+                                                    region = tile,
+                                                    crs = EPSG)
 
             # wait a moment for download to finish
             time.sleep(20) #seconds
