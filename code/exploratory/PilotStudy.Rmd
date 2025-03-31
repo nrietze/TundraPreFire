@@ -20,7 +20,8 @@ library(lubridate)
 library(quantreg)
 set.seed(10)
 
-knitr::opts_chunk$set(
+knitr::opts_chunk$set
+(
     # This should allow Rmarkdown to locate the data
     root.dir = rprojroot::find_rstudio_root_file()
 )
@@ -64,11 +65,21 @@ TABLE_DIR <- "~/data/tables/"
 index_name = "NDMI"
 FIRE_ID <- 14664 # fire ID for part of the large fire scar
 
-UTM_TILE_ID <- "54WXE"
-year <- 2020
 severity_index <- "dNBR"
 
 pct_cutoff <- 0.5
+
+# Output directory for sample tables
+TABLE_DIR <- ifelse(OS == "Linux", 
+                    "~/data/tables/","data/tables/")
+
+# Load lookup tables
+final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
+  filter(tst_year >= 2017) %>% 
+  filter(fireid %in% TEST_ID)
+
+UTM_TILE_ID <- "54WXE"
+year <- 2020
 
 # Load dNBR raster
 severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
