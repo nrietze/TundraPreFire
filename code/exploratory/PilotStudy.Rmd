@@ -62,7 +62,7 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
 HLS_DIR <- "~/data/raster/hls/"
 TABLE_DIR <- "~/data/tables/"
 index_name = "NDMI"
-TEST_ID <- 14211 # fire ID for part of the large fire scar
+FIRE_ID <- 14664 # fire ID for part of the large fire scar
 
 UTM_TILE_ID <- "54WXE"
 year <- 2020
@@ -71,9 +71,11 @@ severity_index <- "dNBR"
 pct_cutoff <- 0.5
 
 # Load dNBR raster
-dnbr <- rast(
-  sprintf("~/data/raster/hls/severity_rasters/%s_%s_%s.tif",
-          UTM_TILE_ID, year,severity_index)) * 1000
+severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
+                                 pattern = sprintf("^%s_%s_%s.*\\.tif$",
+                                                   severity_index,UTM_TILE_ID,year),
+                                 full.names = TRUE)
+dnbr <- rast(severity_rasters[1]) * 1000
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
@@ -81,7 +83,7 @@ fire_perimeters <- vect(
 )
 
 selected_fire_perimeter <- fire_perimeters %>% 
-  filter(fireid  == TEST_ID) %>%
+  filter(fireid  == FIRE_ID) %>%
   project(crs(dnbr))
 
 # Buffer the selected fire perimeter
@@ -92,7 +94,9 @@ dnbr_in_perimeter <- dnbr %>%
   crop(fire_perimeter_buffered)
 
 # Load sampled points (with associated burn dates)
-sample_points <- vect("~/data/feature_layers/sample_points_burn_date.gpkg") %>% 
+fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
+                               FIRE_ID)
+sample_points <- vect(fname_sample_points) %>% 
   project(crs(dnbr)) %>% 
   mutate(ObservationID = 1:nrow(.))
 
@@ -101,7 +105,10 @@ dnbr_sample <- terra::extract(dnbr, sample_points,
                               ID = FALSE, xy = TRUE)
 
 # Load filtered and formatted dataframe
-fn_filtered_df <- sprintf("data/tables/merged_filtered_%sth_pctile.csv",pct_cutoff*100)
+fn_filtered_df <- sprintf(
+  "~/data/tables/%s_%s_merged_filtered_%sth_pctile.csv",
+  FIRE_ID, year,pct_cutoff*100
+  )
 
 df_filtered <- read.csv2(fn_filtered_df) %>% 
     mutate(date = as.Date(date),

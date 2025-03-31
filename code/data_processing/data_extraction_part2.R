@@ -140,7 +140,7 @@ read_hls_data_frames <- function(index_name, FIRE_ID,year,
 severity_index <- "dNBR"
 
 # Set name of spectral index to extract data for
-index_name <- "NDVI"
+index_name <- "NDMI"
 
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- TRUE
