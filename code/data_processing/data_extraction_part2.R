@@ -145,7 +145,7 @@ index_name <- "NDMI"
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- TRUE
 
-TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
+TEST_ID <- c(14664,10792,17548,14211) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5

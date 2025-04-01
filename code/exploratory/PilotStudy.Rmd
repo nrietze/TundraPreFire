@@ -29,9 +29,9 @@ knitr::opts_chunk$set
 
 # User functions
 ```{r}
-read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
+read_hls_data_frames <- function(index_name, FIRE_ID,year,
                                  sample_points, dnbr_sample){
-  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
+  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
   
   df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
     select(-1) %>% 
@@ -63,11 +63,13 @@ read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
 HLS_DIR <- "~/data/raster/hls/"
 TABLE_DIR <- "~/data/tables/"
 index_name = "NDMI"
-FIRE_ID <- 14664 # fire ID for part of the large fire scar
+FIRE_ID <- 14211 # fire ID for part of the large fire scar
 
 severity_index <- "dNBR"
 
 pct_cutoff <- 0.5
+
+OS <- Sys.info()[['sysname']]
 
 # Output directory for sample tables
 TABLE_DIR <- ifelse(OS == "Linux", 
@@ -76,10 +78,10 @@ TABLE_DIR <- ifelse(OS == "Linux",
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) %>% 
-  filter(fireid %in% TEST_ID)
+  filter(fireid %in% FIRE_ID)
 
-UTM_TILE_ID <- "54WXE"
-year <- 2020
+UTM_TILE_ID <- "54WXE"# final_lut$opt_UTM_tile
+year <- final_lut$tst_year
 
 # Load dNBR raster
 severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
@@ -117,7 +119,7 @@ dnbr_sample <- terra::extract(dnbr, sample_points,
 
 # Load filtered and formatted dataframe
 fn_filtered_df <- sprintf(
-  "~/data/tables/%s_%s_merged_filtered_%sth_pctile.csv",
+  "~/data/tables/sampled_data/%s_%s_merged_filtered_%sth_pctile.csv",
   FIRE_ID, year,pct_cutoff*100
   )
 
@@ -179,7 +181,7 @@ p3 <- ggplot(data = dnbr_sample, aes(x = dNBR)) +
 Let's see how many non-NA observations each sampled point has:
 ```{r}
 # Load NDMI raster for nr. of observations
-df_ndmi <- read_hls_data_frames("NDMI", UTM_TILE_ID,year,sample_points, dnbr_sample) %>% 
+df_ndmi <- read_hls_data_frames("NDMI", FIRE_ID,year,sample_points, dnbr_sample) %>% 
   rename("NDMI" = index_name)
 
 # get nr. of valid observations per point
@@ -235,7 +237,7 @@ df_nobs <- df_ndmi %>%
 # Define percentile of nr. of observations to use as cutoff
 thr_nobs <- quantile(df_nobs$valid_count,pct_cutoff , na.rm = TRUE)
 
-(ggplot(df_nobs) +
+ggplot(df_nobs) +
   geom_histogram(aes(x = valid_count),binwidth = 5) +
   geom_vline(xintercept = thr_nobs,
              color = "red", linetype = "dashed", linewidth = 1) + 
@@ -246,7 +248,7 @@ thr_nobs <- quantile(df_nobs$valid_count,pct_cutoff , na.rm = TRUE)
   labs(title = "Number of non-NA observations",
        subtitle = sprintf("Threshold of valid data (%sth percentile)",
                           pct_cutoff*100)) +
-  theme_cowplot())
+  theme_cowplot()
 
 # ggsave2(sprintf("figures/Histogram_%s_observations_%sth_pctile.png",
 #                 index_name,pct_cutoff*100),
@@ -290,7 +292,7 @@ p1 <- ggplot(data = dnbr_in_perimeter, aes(x = dNBR)) +
 
 p2 <- df_filtered %>% 
   group_by(ObservationID) %>% 
-  summarise(dNBR = first(dNBR)) %>%
+  summarise(dNBR = first(burn_severity)) %>%
   ggplot(data = ., aes(x = dNBR)) +
   geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
   xlim(c(-500,1000)) +
@@ -362,19 +364,19 @@ index_name <- "NDMI"
 df_filtered %>% 
   filter(ObservationID %in% rand_id) %>%
   mutate(ObservationID = as.factor(ObservationID)) %>% 
-  mutate(ObservationID = fct_reorder(ObservationID, dNBR)) %>% 
+  mutate(ObservationID = fct_reorder(ObservationID, burn_severity)) %>% 
   ggplot() +
     geom_point(aes(x = date,y = !!sym(paste0("DailyMean",index_name)),
                    color = BeforeBurnDate),alpha = .2) +
     labs(y = sprintf("Daily mean %s\n (per point location)",index_name),
          title = "Lowest severity top left to highest bottom right") +
-    geom_hline(yintercept = 0, linetype = "solid", color = "black") +
+    geom_hline(yintercept = 1, linetype = "solid", color = "black") +
     geom_vline(aes(xintercept = as.numeric(burn_date)), color = "red", linetype = "dashed") +
     facet_wrap(~ObservationID) +
     theme_cowplot()
 
-# ggsave2(sprintf("figures/%s_perpoint.png",index_name),
-#         bg = "white",width = 9, height = 8)
+ggsave2(sprintf("figures/%s_%s_perpoint.png",FIRE_ID,index_name),
+        bg = "white",width = 9, height = 8)
 ```
 
 ### iii. Histogram of spectral index values
@@ -396,8 +398,8 @@ ggplot(df_filtered) +
   labs(title = sprintf("Histogram of %s values",index_name)) +
   theme_cowplot()
 
-# ggsave2(sprintf("figures/Histogram_%s.png",index_name),
-#         bg = "white",width = 10, height = 8)
+ggsave2(sprintf("figures/Histogram_%s_%s.png",index_name,FIRE_ID),
+        bg = "white",width = 10, height = 8)
 ```
 
 ### iv. Scatter dNBR vs. spectral index
@@ -405,7 +407,7 @@ ggplot(df_filtered) +
 ```{r}
 # Scatterplot spectral index vs.dNBR 
 (ggplot(df_filtered) +
-  geom_point(aes(x = !!sym(paste0("DailyMean",index_name)),y = dNBR,
+  geom_point(aes(x = !!sym(paste0("DailyMean",index_name)),y = burn_severity,
                  color = BeforeBurnDate),alpha = .2) +
   labs(x = sprintf("Daily mean %s\n (per point location)",index_name),y = "dNBR") +
    facet_wrap(~as.factor(BeforeBurnDate)) +
@@ -420,7 +422,7 @@ The time series of LST for this fire event looks like this:
 df_filtered %>% 
   filter(ObservationID %in% rand_id) %>%
   mutate(ObservationID = as.factor(ObservationID)) %>% 
-  mutate(ObservationID = fct_reorder(ObservationID, dNBR)) %>% 
+  mutate(ObservationID = fct_reorder(ObservationID, burn_severity)) %>% 
   ggplot() +
   geom_point(aes(x = date,y = LST, color = BeforeBurnDate),alpha = .2) +
   labs(y = sprintf("Daily mean %s\n (per point location)","LST"),
@@ -429,7 +431,8 @@ df_filtered %>%
   facet_wrap(~ObservationID) +
   theme_cowplot()
 
-# ggsave2("figures/LST_perpoint.png",bg = "white",width = 10, height = 8)
+ggsave2(sprintf("figures/LST_perpoint_%s.png",FIRE_ID),
+        bg = "white",width = 10, height = 8)
 ```
 
 
@@ -448,8 +451,8 @@ df_mod <- df_filtered %>%
 
 df_mod <- df_filtered %>%
   group_by(ObservationID) %>%
-  select(dNBR) %>% 
-  summarize(dNBR = first(dNBR)) %>% 
+  select(burn_severity) %>% 
+  summarize(dNBR = first(burn_severity)) %>% 
   select(-ObservationID) %>% 
   cbind(df_mod)
 ```
@@ -736,7 +739,7 @@ ggsave2("figures/LST_quadratic_fits.png",
 I use the full-season splines (spar = 0.5) to predict NDMI values at different time intervals before the fire and then calculate their integrals.
 
 ```{r}
-TEST_PIXEL <- 2742
+TEST_PIXEL <- 109 #2742
 
 df <- df_filtered %>% 
   filter(ObservationID == TEST_PIXEL,
@@ -805,21 +808,27 @@ ndmi_smooth <- df_filtered %>%
   group_by(ObservationID) %>% 
   group_modify(~model_index_smoothedspline(.x$doy,.x$DailyMeanNDMI,.x,spar = spar))
 
-
 # Merge dataframes
 data_ndmi <- df_filtered %>% 
-  right_join(ndmi_smooth, by = "ObservationID") %>% 
-  mutate(descals_burn_class = factor(descals_burn_class,labels = c("unburned","burned")))
+  right_join(ndmi_smooth, by = "ObservationID")
 
+if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
+  data_ndmi <- data_ndmi %>% 
+    mutate(descals_burn_class = factor(descals_burn_class,
+                                       labels = c("unburned","burned")))
+
+}
+  
 ```
 
 Let's look at the relationship (scatter) between dNBR and the cumulative NDMI from 1-7 days before the fire:
 ```{r}
 # Plot time-integrated NDMI 7 days before fire vs. dNBR
-ggplot(data,aes(x = d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
+ggplot(data_ndmi,aes(x = d_prefire_7 ,y = burn_severity, color = descals_burn_class)) +
   geom_point(alpha = .2) +
   geom_smooth(method='lm') +
-  labs(x = sprintf("Cumulative %s (sum over 1 to 7 days pre-fire)",index_name),
+  labs(x = sprintf("Cumulative %s (sum over 1 to 7 days pre-fire)",
+                   index_name),
        y = "dNBR",
        color = "Burn class (Descals et al., 2022)") +
   theme_cowplot()
@@ -829,7 +838,7 @@ ggplot(data,aes(x = d_prefire_7 ,y = dNBR, color = descals_burn_class)) +
 ```
 
 ```{r}
-ggplot(data,aes(x = d_prefire_7,y = dNBR)) +
+ggplot(data_ndmi,aes(x = d_prefire_7,y = burn_severity)) +
   geom_point(aes(color = elevation),alpha = .2) +
   theme_cowplot()
 ```
@@ -842,21 +851,21 @@ We could check with a quantile regression if it captures the different behaviors
 q10 <- seq(0.05, 0.95, by = 0.1)
 
 # Plot time-integrated NDMI 7 days before fire vs. dNBR
-ggplot(data_reduced,aes(x = d_prefire_7 ,y = dNBR)) +
+ggplot(data_ndmi,aes(x = d_prefire_7 ,y = burn_severity)) +
   geom_point(aes(color = descals_burn_class),alpha = .2) +
   # geom_quantile(quantiles  = q10) +
-  ylim(c(-400,800)) +
+  # ylim(c(-400,800)) +
   labs(x = sprintf("Cumulative %s (sum over 1 to 7 days pre-fire)",index_name),
        y = "dNBR") +
   theme_cowplot()
 
-ggsave2("figures/7d_prefireNDMI_vs_dNBR_noline.png",
+ggsave2(sprintf("figures/7d_prefireNDMI_vs_dNBR_noline_%s.png",FIRE_ID),
         bg = "white",width = 10, height = 8)
 ```
 Now, let's see which time before the fire has the highest R2:
 
 ```{r}
-d_prefire_cols <- grep("^d_prefire_", names(data), value = TRUE)
+d_prefire_cols <- grep("^d_prefire_", names(data_ndmi), value = TRUE)
 
 # Function to run lm and extract statistics
 run_lm <- function(y_var, x_var, data) {
@@ -878,7 +887,7 @@ run_lm <- function(y_var, x_var, data) {
 }
 
 # Run lm for each d_prefire column and combine results
-results <- map_dfr(d_prefire_cols, ~run_lm("dNBR", .x, data))
+results <- map_dfr(d_prefire_cols, ~run_lm("burn_severity", .x, data_ndmi))
 
 results <- results %>% arrange(days_before_fire)
 

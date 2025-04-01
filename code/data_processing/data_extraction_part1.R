@@ -145,7 +145,7 @@ index_name <- "NDMI"
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- TRUE
 
-TEST_ID <- c(17856) # fire ID for part of the large fire scar
+TEST_ID <- c(14664,10792,17548,14211) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
@@ -188,6 +188,7 @@ for(i in 1:nrow(final_lut)) {
                                                    severity_index,UTM_TILE_ID,year),
                                  full.names = TRUE
                                  )
+  
   rast_burn_severity <- rast(severity_rasters[1])
   
   # get fire perimter
@@ -227,47 +228,50 @@ for(i in 1:nrow(final_lut)) {
     }
   }
   
-  # Load DEM tiles for this fire perimeter
-  dem_tiles <- dem_lut %>% 
-    filter(fireid == FIRE_ID) %>% 
-    mutate(filename = paste0(dem_id,"_dem.tif")) %>% 
-    pull(filename)
-  
-  dem_list <- lapply(paste0("~/scratch/raster/arcticDEM/",dem_tiles), rast,
-                     drivers="GTiff")
-  
-  selected_fire_perimeter_stereo <- project(selected_fire_perimeter,
-                                            crs(dem_list[[1]])) %>% 
-    buffer(1000)
-  
-  cropped_dems <- lapply(dem_list,
-                         function(x) crop(x,ext(selected_fire_perimeter_stereo)))
-  
-  # Mosaic DEMS
-  rsrc <- sprc(cropped_dems)
-  dem_mos <- mosaic(rsrc)
-  
-  # Resample to 30m HLS UTM
-  raster_grid_template <- rast(dem_mos)
-  res(raster_grid_template) <- 30
-  
-  # Resample to 30m resolution using bilinear interpolation
-  dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") 
-  names(dem_30m) <- 'elevation'
-  
-  # delete 2m DEM mosaic to free up space
-  rm(cropped_dems,dem_mos)
-  
-  # reproject
-  dem_30m_utm <- project(dem_30m,crs(selected_fire_perimeter))
-  
-  # export resampled DEM
   fname_dem_out <- paste0("~/data/raster/arcticDEM/",
                           FIRE_ID,
                           "_dem_30m.tif")
-  writeRaster(dem_30m_utm,filename = fname_dem_out,overwrite = T)
   
-  rm(dem_30m,dem_30m_utm)
+  if (!file.exists(fname_dem_out)){
+    # Load DEM tiles for this fire perimeter
+    dem_tiles <- dem_lut %>% 
+      filter(fireid == FIRE_ID) %>% 
+      mutate(filename = paste0(dem_id,"_dem.tif")) %>% 
+      pull(filename)
+    
+    dem_list <- lapply(paste0("~/scratch/raster/arcticDEM/",dem_tiles), rast,
+                       drivers="GTiff")
+    
+    selected_fire_perimeter_stereo <- project(selected_fire_perimeter,
+                                              crs(dem_list[[1]])) %>% 
+      buffer(1000)
+    
+    cropped_dems <- lapply(dem_list,
+                           function(x) crop(x,ext(selected_fire_perimeter_stereo)))
+    
+    # Mosaic DEMS
+    rsrc <- sprc(cropped_dems)
+    dem_mos <- mosaic(rsrc)
+    
+    # Resample to 30m HLS UTM
+    raster_grid_template <- rast(dem_mos)
+    res(raster_grid_template) <- 30
+    
+    # Resample to 30m resolution using bilinear interpolation
+    dem_30m <- resample(dem_mos, raster_grid_template, method="cubicspline") 
+    names(dem_30m) <- 'elevation'
+    
+    # delete 2m DEM mosaic to free up space
+    rm(cropped_dems,dem_mos)
+    
+    # reproject
+    dem_30m_utm <- project(dem_30m,crs(selected_fire_perimeter))
+    
+    # export resampled DEM
+    writeRaster(dem_30m_utm,filename = fname_dem_out,overwrite = T)
+    
+    rm(dem_30m,dem_30m_utm)
+  }
   
   # Buffer the selected fire perimeter
   fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
@@ -280,7 +284,7 @@ for(i in 1:nrow(final_lut)) {
                                  FIRE_ID)
   
   # Sample points only when gpkg file doens't exist
-  if (!file.exists(fname_sample_points)){
+  if (!file.exists(fname_sample_points) || OVERWRITE_DATA){
     print("Creating random point sample... \n")
     
     # Set dNBR bin size for sampling (20 if dNBR * 1000)
@@ -298,7 +302,7 @@ for(i in 1:nrow(final_lut)) {
                             brackets=TRUE)
     
     # Set proportion of sampled values per bin
-    frac_to_sample <- 0.01
+    frac_to_sample <- 0.3
     
     # Create spatial point sample
     sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
