@@ -140,4 +140,4 @@ for row in tqdm(fire_perims_in_cavm.iterrows(), total = len(fire_perims_in_cavm)
     final_lut.loc[final_lut.fireid == vect.fireid, 'descals_file'] = os.path.basename(nearest_descals_tile_centroid.filename.item())
     
 # Export dataframe as csv
-final_lut.to_csv(os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"))   
+final_lut.to_csv(os.path.join(DATA_FOLDER,"tables/processing_LUT_really.csv"))   

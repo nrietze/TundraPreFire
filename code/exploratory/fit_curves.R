@@ -10,10 +10,10 @@ set.seed(10)
 
 # 0. Set up functions ----
 # ========================.
-load_data <- function(final_lut,severity_index){
+load_data <- function(fire_attrs,severity_index){
   # Fire perimeter attributes
-  UTM_TILE_ID <- final_lut$opt_UTM_tile
-  year <- final_lut$tst_year
+  UTM_TILE_ID <- fire_attrs$opt_UTM_tile
+  year <- fire_attrs$tst_year
   
   SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
   
@@ -156,10 +156,12 @@ fire_perimeters <- vect(
 )
 
 for (FIRE_ID in FIRE_IDs){
-  final_lut <- filter(final_lut, fireid == FIRE_ID)
+  cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
+  
+  fire_attrs <- filter(final_lut, fireid == FIRE_ID)
   
   # Load all data
-  data_list <- load_data(final_lut, severity_index)
+  data_list <- load_data(fire_attrs, severity_index)
   
   df_filtered <- data_list[[1]]
   severity_raster_sample <- data_list[[2]]

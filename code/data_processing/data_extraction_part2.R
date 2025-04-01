@@ -143,7 +143,7 @@ severity_index <- "dNBR"
 index_name <- "NDMI"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
 

@@ -150,6 +150,9 @@ TEST_ID <- c(14664,10792,17548,14211) # fire ID for part of the large fire scar
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
+# Set proportion of sampled values per bin
+frac_to_sample <- 0.3
+
 OS <- Sys.info()[['sysname']]
 
 # Output directory for sample tables
@@ -300,9 +303,6 @@ for(i in 1:nrow(final_lut)) {
                             bins, 
                             include.lowest=TRUE,
                             brackets=TRUE)
-    
-    # Set proportion of sampled values per bin
-    frac_to_sample <- 0.3
     
     # Create spatial point sample
     sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
