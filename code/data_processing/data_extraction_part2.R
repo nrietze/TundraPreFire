@@ -110,7 +110,7 @@ read_hls_data_frames <- function(index_name, FIRE_ID,year,
                                  sample_points, dnbr_sample){
   filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
   
-  df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
+  df <- read.csv2(paste0(OUT_DIR,filename)) %>% 
     select(-1) %>% 
     mutate(burn_severity = dnbr_sample[,1]) %>% 
     as_tibble() %>% 
@@ -143,9 +143,9 @@ severity_index <- "dNBR"
 index_name <- "NDMI"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
-TEST_ID <- c(14664,10792,17548,14211) # fire ID for part of the large fire scar
+TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
@@ -153,8 +153,8 @@ pct_cutoff <- 0.5
 OS <- Sys.info()[['sysname']]
 
 # Output directory for sample tables
-TABLE_DIR <- ifelse(OS == "Linux", 
-                    "~/data/tables/","data/tables/")
+TABLE_DIR <- ifelse(OS == "Linux","~/data/tables/","data/tables/")
+OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
@@ -212,7 +212,7 @@ for(i in 1:nrow(final_lut)) {
   filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
   
   # only stack rasters if needed (takes a while)
-  if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
+  if (!file.exists(paste0(OUT_DIR,filename)) || OVERWRITE_DATA){
     cat("Stacking and extracting spectral index data... \n")
     
     HLS_DIR <- "~/scratch/raster/hls/processed/"
@@ -227,7 +227,7 @@ for(i in 1:nrow(final_lut)) {
       as_tibble()
     
     # Export as table
-    write.csv2(df_spectral_index,paste0(TABLE_DIR,filename))
+    write.csv2(df_spectral_index,paste0(OUT_DIR,filename))
   }
   
   ## b. Landsat-8 LST ----
@@ -236,7 +236,7 @@ for(i in 1:nrow(final_lut)) {
   filename <- sprintf("LST_sampled_%s_%s.csv",FIRE_ID,year)
   
   # only stack rasters if needed (takes a while)
-  if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
+  if (!file.exists(paste0(OUT_DIR,filename)) || OVERWRITE_DATA){
     cat("Stacking and extracting LST data... \n")
     
     # List LST tiffs (except "tile" files)
@@ -285,19 +285,19 @@ for(i in 1:nrow(final_lut)) {
       as_tibble()
     
     # Export as table
-    write.csv2(df_lst,paste0(TABLE_DIR,filename))
+    write.csv2(df_lst,paste0(OUT_DIR,filename))
   }
   
   # 5. Filter and format sampled data ----
   
   # Set name of filtered and formatted dataframe
   fn_filtered_df <- sprintf(
-    "~/data/tables/%s_%s_merged_filtered_%sth_pctile.csv",
+    "%s_%s_merged_filtered_%sth_pctile.csv",
     FIRE_ID, year,pct_cutoff*100
     )
   
   # Check if data frame exists or needs to be overwritten
-  if (!file.exists(fn_filtered_df) || OVERWRITE_DATA){
+  if (!file.exists(paste0(OUT_DIR,fn_filtered_df)) || OVERWRITE_DATA){
     cat("Filtering and formatting raster data... \n")
     
     # Extract dNBR at random points 
