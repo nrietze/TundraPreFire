@@ -37,8 +37,10 @@ load_data <- function(fire_attrs,severity_index){
     crop(fire_perimeter_buffered)
   
   # Load sample points (with associated burn dates)
-  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
-                                 FIRE_ID)
+  fname_sample_points <-  paste0(
+    DATA_DIR,
+    sprintf("feature_layers/%s_sample_points_burn_date.gpkg",FIRE_ID)
+  )
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(severity_raster)) %>% 
     mutate(ObservationID = 1:nrow(.))
@@ -48,10 +50,10 @@ load_data <- function(fire_attrs,severity_index){
                                            ID = FALSE, xy = TRUE)
   
   # Load filtered and formatted dataframe
-  fn_filtered_df <- sprintf(
-    "~/data/tables/sampled_data/%s_%s_merged_filtered_%sth_pctile.csv",
+  fn_filtered_df <- paste0(TABLE_DIR,sprintf(
+    "sampled_data/%s_%s_merged_filtered_%sth_pctile.csv",
     FIRE_ID, year,pct_cutoff*100
-  )
+  ))
   
   df_filtered <- read.csv2(fn_filtered_df) %>% 
     mutate(date = as.Date(date),
@@ -136,10 +138,14 @@ model_LST_polynomial <- function(x,y,full_data) {
 # 1. Configure and load stuff ----
 # ================================.
 # Config, loading and preparing data
-HLS_DIR <- "~/data/raster/hls/"
-TABLE_DIR <- "~/data/tables/"
+OS <- Sys.info()[['sysname']]
+DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 
-FIRE_IDs <- c(14664,10792,17548,14211)
+HLS_DIR <- paste0(DATA_DIR,"raster/hls/")
+TABLE_DIR <- paste0(DATA_DIR,"/tables/")
+
+# FIRE_IDs <- c(14664,10792,17548,14211)
+FIRE_IDs <- c(17548)
 index_name <- "NDMI"
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
@@ -152,7 +158,7 @@ final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
 
 # Load fire perimeters
 fire_perimeters <- vect(
-  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+  paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 )
 
 for (FIRE_ID in FIRE_IDs){
@@ -174,6 +180,8 @@ for (FIRE_ID in FIRE_IDs){
   # 2. Fit splines to NDMI & NDVI ----
   # ==================================.
   spar <- 0.5
+  
+  cat("Fitting smoothing splines... \n")
   
   # Apply spline to each time series point
   ndmi_smooth <- df_filtered %>%

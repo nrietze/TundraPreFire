@@ -1,4 +1,3 @@
-library(ggplot2)
 library(cowplot)
 library(viridis)
 library(colorspace)
@@ -16,52 +15,61 @@ set.seed(10)
 
 # 1. Load data and simulate NDMI time series ----
 severity_index <- "dNBR"
-FIRE_ID <- 14211
+FIRE_ID <- 17548
+
+OS <- Sys.info()[['sysname']]
+DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 
 # Output directory for sample tables
-TABLE_DIR <- "~/data/tables/"
 OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
 
 # Load lookup tables
-final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
+final_lut <- read.csv(paste0(DATA_DIR,"tables/processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) 
 
 fire_attributes <- final_lut %>% 
   filter(fireid %in% FIRE_ID)
 
 UTM_TILE_ID <- fire_attributes$opt_UTM_tile
-year <- fire_attributes$year
+year <- fire_attributes$tst_year
 
 # Load real data from fire scar (fireid = 14211)
 # data_all <- read.csv(sprintf("data/tables/full_data_table_%s.csv",FIRE_ID))
-data_all <- read.csv(sprintf("~/data/tables/%s_%s_merged_filtered_50th_pctile.csv",FIRE_ID))
+data_all <- read.csv2(
+  paste0(DATA_DIR,
+         sprintf("tables/sampled_data/%s_%s_merged_filtered_50th_pctile.csv",FIRE_ID,year))
+  )
 
 # Load burn severity rasters
-severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
-                               pattern = sprintf("^%s_%s_%s.*\\.tif$",
-                                                 severity_index,UTM_TILE_ID,year),
-                               full.names = TRUE)
+severity_rasters <- list.files(
+  path = paste0(DATA_DIR,"raster/hls/severity_rasters"),
+  pattern = sprintf("^%s_%s_%s.*\\.tif$",severity_index,UTM_TILE_ID,year),
+  full.names = TRUE)
+
 SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
+
 rast_burn_severity <- rast(severity_rasters[1]) * SCALE_FACTOR
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
-  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+  paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 )
 
 selected_fire_perimeter <- fire_perimeters %>% 
   filter(fireid  == FIRE_ID) %>%
-  project(crs(dnbr))
+  project(crs(rast_burn_severity))
 
-dnbr_in_perimeter <- dnbr %>% 
+dnbr_in_perimeter <- rast_burn_severity %>% 
   mask(selected_fire_perimeter, updatevalue = NA) %>% 
   crop(selected_fire_perimeter)
 
 # Load sample points (with associated burn dates)
-fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
-                               FIRE_ID)
+fname_sample_points <- paste0(DATA_DIR,
+                              sprintf("feature_layers/%s_sample_points_burn_date.gpkg",
+                               FIRE_ID))
+
 sample_points <- vect(fname_sample_points) %>% 
-  project(crs(severity_raster)) %>% 
+  project(crs(rast_burn_severity)) %>% 
   mutate(ObservationID = 1:nrow(.))
 
 # Define x-axis: Days since fire (from -50 to +30)
