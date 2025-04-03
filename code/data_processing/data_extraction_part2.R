@@ -106,41 +106,11 @@ get_ls_datetime <- function(raster){
   return(date)
 }
 
-read_hls_data_frames <- function(index_name, FIRE_ID,year,
-                                 sample_points, dnbr_sample){
-  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
-  
-  df <- read.csv2(paste0(OUT_DIR,filename)) %>% 
-    select(-1) %>% 
-    mutate(burn_severity = dnbr_sample[,1]) %>% 
-    as_tibble() %>% 
-    mutate(burn_date = sample_points$burn_date,
-           descals_burn_class = sample_points$descals_burned)
-  
-  if (index_name == "LST"){
-    fmt = "X%Y.%m.%d"
-  } else{
-    fmt = "X%Y.%m.%d.%H.%M.%S"
-  }
-  
-  df_long <- df %>%
-    mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-    gather(key = "Time", value = index_name, 
-           -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
-    mutate(Time = as.POSIXct(Time, format = fmt)) 
-  
-  return(df_long)
-}
-
-
 # 1. Loading and preparing data: ----
 # ===================================.
 
 # Set name of severity index to extract data for
 severity_index <- "dNBR"
-
-# Set name of spectral index to extract data for
-index_name <- "NDMI"
 
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- FALSE
@@ -206,28 +176,63 @@ for(i in 1:nrow(final_lut)) {
     project(crs(rast_burn_severity)) %>% 
     mutate(ObservationID = 1:nrow(.))
   
+  # Extract dNBR at random points 
+  dnbr_sample <- terra::extract(rast_burn_severity, sample_points,
+                                ID = FALSE, xy = TRUE)
+  
   ## a. HLS spectral indices ----
   
-  # Check if filename exists and reprocessing is activated
-  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
-  
-  # only stack rasters if needed (takes a while)
-  if (!file.exists(paste0(OUT_DIR,filename)) || OVERWRITE_DATA){
-    cat("Stacking and extracting spectral index data... \n")
+  for (index_name in c("NDMI","NDVI")){
+    # Check if filename exists and reprocessing is activated
+    filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
     
-    HLS_DIR <- "~/scratch/raster/hls/processed/"
-    image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
+    fmt  <- ifelse(index_name == "NDMI","%Y-%m-%d %H:%M:%S","X%Y.%m.%d.%H.%M.%S")
     
-    # create raster time series object
-    rt <- rts(image_stack, time(image_stack))
-    
-    # Extract spectral index time series at each sample point
-    df_spectral_index <- terra::extract(rt, sample_points) %>%
-      t() %>%
-      as_tibble()
-    
-    # Export as table
-    write.csv2(df_spectral_index,paste0(OUT_DIR,filename))
+    # only stack rasters if needed (takes a while)
+    if (!file.exists(paste0(OUT_DIR,filename)) || OVERWRITE_DATA){
+      cat("Stacking and extracting spectral index data... \n")
+      
+      HLS_DIR <- "~/scratch/raster/hls/processed/"
+      image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
+      
+      # create raster time series object
+      rt <- rts(image_stack, time(image_stack))
+      
+      # Extract spectral index time series at each sample point
+      df_spectral_index <- terra::extract(rt, sample_points) %>%
+        t() %>%
+        as_tibble() 
+      
+      df_long <- df_spectral_index %>% 
+        mutate(ObservationID = 1:nrow(.),
+               burn_severity = dnbr_sample[,1],
+               burn_date = sample_points$burn_date,
+               descals_burn_class = sample_points$descals_burned,
+               .before = 1) %>% 
+        gather(key = "Time", value = !!sym(index_name), 
+               -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
+        mutate(Time = ymd_hms(Time))
+      
+      # Export as table
+      cat("Writing data to csv...\n")
+      write.csv2(df_long,paste0(OUT_DIR,filename))
+      
+    } else if (file.exists(paste0(OUT_DIR,filename)) && index_name == "NDMI") {
+      cat("Loading NDMI samples...\n")
+      
+      # Load  NDMI time series at points 
+      df_ndmi <- read.csv2(paste0(OUT_DIR,filename))
+      df_ndmi <- df_ndmi %>% 
+        mutate(Time = as_datetime(Time, format = "%Y-%m-%d %H:%M:%S"))
+      
+    } else if (file.exists(paste0(OUT_DIR,filename)) && index_name == "NDVI") {  
+      cat("Loading NDVI samples...\n")
+      
+      # Load NDVI time series at points
+      df_ndvi <- read.csv2(paste0(OUT_DIR,filename))
+      df_ndvi <- df_ndvi %>% 
+        mutate(Time = ymd_hms(Time))
+    }
   }
   
   ## b. Landsat-8 LST ----
@@ -280,12 +285,30 @@ for(i in 1:nrow(final_lut)) {
     rt_lst <- rts(lst, time(lst))
     
     # Extract LST time series at each sample point
+    fmt = "%Y-%m-%d"
+    
     df_lst <- terra::extract(rt_lst, sample_points) %>%
       t() %>%
-      as_tibble()
+      as_tibble() %>% 
+      mutate(ObservationID = 1:nrow(.),
+             burn_severity = dnbr_sample[,1],
+             burn_date = sample_points$burn_date,
+             descals_burn_class = sample_points$descals_burned,
+             .before = 1) %>% 
+      gather(key = "Time", value = !!sym(index_name), 
+             -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
+      mutate(Time = as_datetime(Time, format = fmt))
     
     # Export as table
+    cat("Writing data to csv...\n")
     write.csv2(df_lst,paste0(OUT_DIR,filename))
+  } else {
+    
+    cat("Loading LST samples...\n")
+    df_lst <- read.csv2(paste0(OUT_DIR,filename))
+    
+    df_lst <- df_lst %>%
+      mutate(Time = as_datetime(Time, format = fmt))
   }
   
   # 5. Filter and format sampled data ----
@@ -300,24 +323,10 @@ for(i in 1:nrow(final_lut)) {
   if (!file.exists(paste0(OUT_DIR,fn_filtered_df)) || OVERWRITE_DATA){
     cat("Filtering and formatting raster data... \n")
     
-    # Extract dNBR at random points 
-    dnbr_sample <- terra::extract(rast_burn_severity, sample_points,
-                                  ID = FALSE, xy = TRUE)
-    
-    # Load NDVI and NDMI time series at points 
-    df_ndmi <- read_hls_data_frames("NDMI", FIRE_ID,year,sample_points, dnbr_sample)
-    df_ndvi <- read_hls_data_frames("NDVI",FIRE_ID,year,sample_points, dnbr_sample)
-    df_lst <- read_hls_data_frames("LST",FIRE_ID,year,sample_points, dnbr_sample)
-    
-    df_lst <- df_lst %>%
-      mutate(Time = as.Date(Time))
-    
     # Concatenate the data frames
     df_hls <- df_ndmi %>%
-      rename(NDMI = index_name) %>%
-      left_join(df_ndvi %>% select(ObservationID, Time, index_name), 
+      left_join(df_ndvi %>% select(ObservationID, Time, NDVI), 
                 by = c("ObservationID", "Time")) %>% 
-      rename(NDVI = index_name) %>% 
       mutate(date = as.Date(Time))
     
     # Compute daily means
@@ -385,10 +394,9 @@ for(i in 1:nrow(final_lut)) {
     
     # Merge with LST data
     df_filtered <- df_filtered %>% 
-      left_join(df_lst %>% select(ObservationID, Time, index_name), 
+      left_join(df_lst %>% select(ObservationID, Time, LST), 
                 by = c("ObservationID" = "ObservationID", 
-                       "date" = "Time")) %>%
-      rename(LST = index_name) # Rename index_name to LST
+                       "date" = "Time"))
     
     # Write filtered data frame to CSV
     write.csv2(df_filtered,fn_filtered_df)
