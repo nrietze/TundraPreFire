@@ -1,11 +1,11 @@
 library(terra)
 library(tidyterra)
+library(readr)
 library(spatstat.utils)
 library(tidyverse)
-library(cowplot)
-library(patchwork)
+library(data.table)
+library(future.apply)
 library(lubridate)
-library(quantreg)
 set.seed(10)
 
 # 0. Set up functions ----
@@ -55,7 +55,8 @@ load_data <- function(fire_attrs,severity_index){
     FIRE_ID, year,pct_cutoff*100
   ))
   
-  df_filtered <- read.csv2(fn_filtered_df) %>% 
+  df_filtered <- read_csv2(fn_filtered_df, col_names = TRUE) %>% 
+    as_tibble() %>% 
     mutate(date = as.Date(date),
            burn_date = as.Date(burn_date),
            doy = yday(date))
@@ -103,6 +104,19 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
   return(out_data)
 }
 
+#  function to process each ObservationID
+process_group <- function(dt, index_name) {
+  x <- dt$doy
+  y <- select(dt,contains(index_name)) %>% 
+    pull()
+  
+  result <- model_index_smoothedspline(x, y, dt, spar = 0.5)
+  
+  result <- as.data.table(result) 
+  result[, ObservationID := dt$ObservationID[1]]
+  return(result)
+}
+
 # Restructured function to return vector of predictions
 model_LST_polynomial <- function(x,y,full_data) {
   
@@ -144,13 +158,11 @@ DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 HLS_DIR <- paste0(DATA_DIR,"raster/hls/")
 TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
-# FIRE_IDs <- c(14664,10792,17548,14211)
-FIRE_IDs <- c(17548)
-index_name <- "NDMI"
+FIRE_IDs <- c(14664,10792,17548)
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
 SAVE_FIGURES <- TRUE
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
 # Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
@@ -164,94 +176,103 @@ fire_perimeters <- vect(
 for (FIRE_ID in FIRE_IDs){
   cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
   
-  fire_attrs <- filter(final_lut, fireid == FIRE_ID)
-  
-  # Load all data
-  data_list <- load_data(fire_attrs, severity_index)
-  
-  df_filtered <- data_list[[1]]
-  severity_raster_sample <- data_list[[2]]
-  sample_points <- data_list[[3]]
-  cropped_severity_raster <- data_list[[4]]
-  selected_fire_perimeter <- data_list[[5]]
-  
-  rm(data_list)
-  
-  # 2. Fit splines to NDMI & NDVI ----
-  # ==================================.
-  spar <- 0.5
-  
-  cat("Fitting smoothing splines... \n")
-  
-  # Apply spline to each time series point
-  ndmi_smooth <- df_filtered %>%
-    filter(!is.na(DailyMeanNDMI)) %>% 
-    group_by(ObservationID) %>% 
-    group_modify(
-      ~model_index_smoothedspline(.x$doy,.x$DailyMeanNDMI,.x,spar = spar)
-      ) %>% 
-    rename_with(~ paste0("NDMI.", .), -ObservationID)
-  
-  ndvi_smooth <- df_filtered %>%
-    filter(!is.na(DailyMeanNDVI)) %>% 
-    group_by(ObservationID) %>% 
-    group_modify(
-      ~model_index_smoothedspline(.x$doy,.x$DailyMeanNDVI,.x,spar = spar)
-      ) %>% 
-    rename_with(~ paste0("NDVI.", .), -ObservationID)
-  
-  # Merge dataframes
-  data_index <- df_filtered %>% 
-    right_join(ndmi_smooth, by = "ObservationID") %>% 
-    right_join(ndvi_smooth, by = "ObservationID")
-  
-  if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
-    data_index <- data_index %>% 
-      mutate(descals_burn_class = factor(descals_burn_class,
-                                         labels = c("unburned","burned")))
-  }
-  
-  # 3. Fit splines to LST ----
-  # ==========================.
-  
-  # Apply spline to each time series point
-  lst_smooth <- df_filtered %>%
-    filter(!is.na(doy)) %>% 
-    group_by(ObservationID) %>% 
-    group_modify(~model_LST_polynomial(.x$doy,.x$LST,.x))
-  
-  # Merge dataframes
-  data_lst <- df_filtered %>% 
-    right_join(lst_smooth, by = "ObservationID")
-  
-  if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
-    data_lst <- data_lst %>% 
-      mutate(descals_burn_class = factor(descals_burn_class,
-                                       labels = c("unburned","burned")))
-  }
-  
-  # 4. Build full dataframe for export ----
-  # =======================================.
-  data_all <- data_lst %>% 
-    right_join(data_index,by = c("ObservationID","date")) 
-  
-  if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
-    data_all <- data_all %>% 
-      mutate(descals_burn_class = factor(descals_burn_class,
-                                         labels = c("unburned","burned")))
-  }
-  
-  # remove unnecessary or duplicate columns
-  data_reduced <- data_all %>% 
-    select(-contains(".y")) %>% 
-    rename_with(~ sub(".x$", "", .x), everything()) %>%
-    distinct()
-  
-  # Export as table
   filename <- sprintf("model_dataframes/%s_%s_model_dataframe.csv",
                       FIRE_ID,severity_index)
   
   if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
-    write.csv2(data_reduced,paste0(TABLE_DIR,filename))
-  }
+  
+    fire_attrs <- filter(final_lut, fireid == FIRE_ID)
+    
+    # Load all data
+    data_list <- load_data(fire_attrs, severity_index)
+    
+    df_filtered <- data_list[[1]]
+    severity_raster_sample <- data_list[[2]]
+    sample_points <- data_list[[3]]
+    cropped_severity_raster <- data_list[[4]]
+    selected_fire_perimeter <- data_list[[5]]
+    
+    rm(data_list)
+    
+    # 2. Fit splines to NDMI & NDVI ----
+    # ==================================.
+    spar <- 0.5
+    
+    cat("Fitting smoothing splines... \n")
+    
+    # convert to data table for faster processing
+    setDT(df_filtered) 
+    
+    # Set up parallel processing
+    plan(multisession, workers = 11)
+    
+    # Apply spline to each NDMI time series point (filter out NA and points with < 4 obs.)
+    df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDMI)][,
+                                                            if (.N >= 4) .SD,
+                                                            by = ObservationID]
+    df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
+    results <- future_lapply(df_list, process_group, index_name = "NDMI")
+    
+    # Combine results efficiently
+    ndmi_smooth <- rbindlist(results, fill = TRUE) %>% 
+      rename_with(~ paste0("NDMI.d_prefire_", .), -ObservationID)
+    
+    # Apply spline to each NDMI time series point (filter out NA and points with < 4 obs.)
+    df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDVI)][,
+                                                            if (.N >= 4) .SD,
+                                                            by = ObservationID] 
+    df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
+    results <- future_lapply(df_list, process_group, index_name = "NDVI")
+    
+    # merge results into  data.table
+    ndvi_smooth <- rbindlist(results, fill = TRUE) %>% 
+      rename_with(~ paste0("NDVI.d_prefire_", .), -ObservationID)
+    
+    # Merge dataframes
+    data_index <- df_filtered %>% 
+      right_join(ndmi_smooth, by = "ObservationID") %>% 
+      right_join(ndvi_smooth, by = "ObservationID")
+    
+    if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
+      data_index <- data_index %>% 
+        mutate(descals_burn_class = factor(descals_burn_class,
+                                           labels = c("unburned","burned")))
+    }
+    
+    # 3. Fit splines to LST ----
+    # ==========================.
+    
+    # Apply spline to each time series point
+    lst_smooth <- df_filtered %>%
+      as_tibble() %>% 
+      filter(!is.na(doy),
+             ) %>% 
+      group_by(ObservationID) %>% 
+      filter(sum(!is.na(LST)) >= 2) %>%  # Only keep groups with >= 2 non-NA LST values
+      group_modify(~ model_LST_polynomial(.x$doy, .x$LST, .x))
+    
+    # Merge dataframes
+    data_lst <- df_filtered %>% 
+      right_join(lst_smooth, by = "ObservationID")
+    
+    # 4. Build full dataframe for export ----
+    # =======================================.
+    data_all <- data_lst %>% 
+      right_join(data_index,by = c("ObservationID","date")) 
+    
+    # remove unnecessary or duplicate columns
+    data_reduced <- data_all %>% 
+      select(-contains(".y")) %>% 
+      rename_with(~ sub(".x$", "", .x), everything()) %>%
+      distinct()
+    
+    if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
+      data_reduced <- data_reduced %>% 
+        mutate(descals_burn_class = factor(descals_burn_class,
+                                           labels = c("unburned","burned")))
+    }
+    
+    # Export as table
+    write_csv2(data_reduced,paste0(TABLE_DIR,filename))
+    }
 }

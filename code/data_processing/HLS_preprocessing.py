@@ -614,14 +614,6 @@ if __name__ == "__main__":
                 search_start_date_dynamic = (latest_tile_fire_end - pd.Timedelta(days=MAX_TIMEDELTA) - relativedelta(years=1)).strftime("%Y-%m-%d")
                 search_end_date_dynamic = f"{year-1}-10-31"
         
-                # Run shell script to download pre-fire HLS data
-                temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
-                with open(temp_tile_file, "w") as temp_file:
-                    temp_file.write(UTM_TILE_NAME + "\n")
-        
-                subprocess.run(["bash", "code/data_processing/getHLS.sh", temp_tile_file, search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
-                os.remove(temp_tile_file)
-        
                 # Define time ranges
                 START_DATE_PRE = (latest_tile_fire_end - 
                                   pd.Timedelta(days=MAX_TIMEDELTA) -
@@ -635,6 +627,20 @@ if __name__ == "__main__":
                     hls_granules_paths, START_DATE_PRE, END_DATE_PRE)
                 hls_granules_paths_post = search_files_by_doy_range(
                     hls_granules_paths, START_DATE_POST, END_DATE_POST)
+
+                if hls_granules_paths_pre:
+                    print("Pre-fire HLS granules downloaded already, skipping download...\n")
+                else:
+                    # Run shell script to download pre-fire HLS data
+                    temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
+                    with open(temp_tile_file, "w") as temp_file:
+                        temp_file.write(UTM_TILE_NAME + "\n")
+            
+                    subprocess.run(["bash", "code/data_processing/getHLS.sh", temp_tile_file, search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
+                    os.remove(temp_tile_file)
+
+                hls_granules_paths_pre = search_files_by_doy_range(
+                    hls_granules_paths, START_DATE_PRE, END_DATE_PRE)
                 
                 hls_granules_paths = hls_granules_paths_pre + hls_granules_paths_post
     

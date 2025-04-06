@@ -16,7 +16,7 @@ read_hls_data_frames <- function(index_name, FIRE_ID,year,
   
   df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
     select(-1) %>% 
-    mutate(dNBR = dnbr_sample$dNBR) %>% 
+    mutate(dNBR = dnbr_sample$dNBR) %>%
     as_tibble() %>% 
     mutate(burn_date = sample_points$burn_date,
            descals_burn_class = sample_points$descals_burned)

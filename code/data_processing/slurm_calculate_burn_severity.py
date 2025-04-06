@@ -140,7 +140,6 @@ def calculate_severity_metrics(gemi_prefire_composite,
         
         if clear_percentage > MIN_VALID_PERCENTAGE and OUT_DIR is not None:
             out_name = os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{date_postfire}.tif")
-    
             # Export as Cloud Optimized GeoTIFF
             final_index.rio.to_raster(raster_path=out_name, driver="COG")
         else:
@@ -251,6 +250,22 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         for postfire_date in postfire_nbr["date"].values:
             postfire_date = pd.Timestamp(postfire_date)
 
+            pf_string = postfire_date.strftime("%Y-%m-%d")
+
+            # Check if any burn severity raster for this tile and date is missing
+            missing_files = [os.path.join(
+                OUT_DIR, f"{index_name}_{utm_tileid}_{pf_string}.tif"
+            ) for index_name in index_names if not os.path.exists(
+                os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{pf_string}.tif")
+            )]
+
+            # Skip calculation, if we have severity rasters for all indices
+            if not missing_files:
+                print(f"All severity rasters for tile {utm_tileid} on {pf_string} already exists. Skipping calculation.\n")
+                continue
+
+            print(f"Calculating severity rasters for tile {utm_tileid} on {pf_string}...\n") 
+            
             # Define post-fire search window (±7 days of same day last year)
             postfire_start = postfire_date - pd.Timedelta(days=MAX_TIMEDELTA)
             postfire_end = postfire_date + pd.Timedelta(days=MAX_TIMEDELTA)

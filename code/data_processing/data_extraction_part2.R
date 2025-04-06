@@ -2,6 +2,7 @@ library(terra)
 library(sf)
 library(tidyterra)
 library(rts)
+library(readr)
 # library(gt)
 library(tidyverse)
 library(cowplot)
@@ -115,7 +116,7 @@ severity_index <- "dNBR"
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- FALSE
 
-TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
+TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
@@ -215,25 +216,28 @@ for(i in 1:nrow(final_lut)) {
       
       # Export as table
       cat("Writing data to csv...\n")
-      write.csv2(df_long,paste0(OUT_DIR,filename))
+      write_csv2(df_long,paste0(OUT_DIR,filename))
       
-    } else if (file.exists(paste0(OUT_DIR,filename)) && index_name == "NDMI") {
-      cat("Loading NDMI samples...\n")
-      
-      # Load  NDMI time series at points 
-      df_ndmi <- read.csv2(paste0(OUT_DIR,filename))
-      df_ndmi <- df_ndmi %>% 
-        mutate(Time = as_datetime(Time, format = "%Y-%m-%d %H:%M:%S"))
-      
-    } else if (file.exists(paste0(OUT_DIR,filename)) && index_name == "NDVI") {  
-      cat("Loading NDVI samples...\n")
-      
-      # Load NDVI time series at points
-      df_ndvi <- read.csv2(paste0(OUT_DIR,filename))
-      df_ndvi <- df_ndvi %>% 
-        mutate(Time = ymd_hms(Time))
-    }
+    } 
   }
+  
+  # Load  NDMI time series at points 
+  cat("Loading NDMI samples...\n")
+  filename <- sprintf("NDMI_sampled_%s_%s.csv",FIRE_ID,year)
+  
+  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+    as_tibble()
+  df_ndmi <- df_ndmi %>% 
+    mutate(Time = ymd_hms(Time))
+  
+  # Load NDVI time series at points
+  cat("Loading NDVI samples...\n")
+  filename <- sprintf("NDVI_sampled_%s_%s.csv",FIRE_ID,year)
+  
+  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+    as_tibble()
+  df_ndvi <- df_ndvi %>% 
+    mutate(Time = ymd_hms(Time))
   
   ## b. Landsat-8 LST ----
   
@@ -295,20 +299,21 @@ for(i in 1:nrow(final_lut)) {
              burn_date = sample_points$burn_date,
              descals_burn_class = sample_points$descals_burned,
              .before = 1) %>% 
-      gather(key = "Time", value = !!sym(index_name), 
+      gather(key = "Time", value = "LST", 
              -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
       mutate(Time = as_datetime(Time, format = fmt))
     
     # Export as table
     cat("Writing data to csv...\n")
-    write.csv2(df_lst,paste0(OUT_DIR,filename))
+    write_csv2(df_lst,paste0(OUT_DIR,filename))
   } else {
     
     cat("Loading LST samples...\n")
-    df_lst <- read.csv2(paste0(OUT_DIR,filename))
+    df_lst <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+      as_tibble()
     
-    df_lst <- df_lst %>%
-      mutate(Time = as_datetime(Time, format = fmt))
+    # df_lst <- df_lst %>%
+    #   mutate(Time = as_datetime(Time, format = fmt))
   }
   
   # 5. Filter and format sampled data ----
@@ -399,6 +404,6 @@ for(i in 1:nrow(final_lut)) {
                        "date" = "Time"))
     
     # Write filtered data frame to CSV
-    write.csv2(df_filtered,fn_filtered_df)
+    write_csv2(df_filtered,paste0(OUT_DIR,fn_filtered_df))
   }
 }
