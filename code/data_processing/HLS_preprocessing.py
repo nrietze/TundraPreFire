@@ -51,6 +51,11 @@ def get_hls_tif_list(main_dir):
     hls_granule_tiffs = []
     
     for root, dirs, files in os.walk(main_dir):
+        if 'processed' in dirs:
+            dirs.remove('processed')
+
+        if 'https' in dirs:
+            dirs.remove('https:')
         
         if not dirs:
             tif_files = [f for f in glob(os.path.join(root, '*.tif')) if "checkpoint" not in f]
@@ -535,7 +540,7 @@ if __name__ == "__main__":
         DATA_FOLDER = 'data/' # on local machine
         HLS_PARENT_PATH = "data/raster/hls/test"
     else:
-        DATA_FOLDER = '~/data/' # on sciencecluster
+        DATA_FOLDER = "/home/nrietz/data/" # on sciencecluster
         HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/" # Set original data paths
 
     num_workers = (
@@ -571,7 +576,7 @@ if __name__ == "__main__":
     chunk_size = dict(band=1, x=3600, y=3600)
 
     hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
-
+    
     # Load UTM tiles
     UTM_TILE_FILE = sys.argv[1]
     
@@ -585,8 +590,8 @@ if __name__ == "__main__":
     
     # Constants
     MAX_TIMEDELTA = 31
-    OUTPUT_DIR = '/scratch/nrietz/raster/hls/'
-    OUT_FOLDER = '/scratch/nrietz/raster/hls/processed/'
+    OUTPUT_DIR = "/home/nrietz/scratch/raster/hls/"
+    OUT_FOLDER = "/home/nrietz/scratch/raster/hls/processed/"
     bit_nums = [0, 1, 2, 3, 4]  # Bits to mask out
     num_workers = 4  # Adjust based on available CPUs
     
@@ -595,11 +600,11 @@ if __name__ == "__main__":
     
     for UTM_TILE_NAME in UTM_TILE_LIST:
         if UTM_TILE_NAME:
-            hls_granules_paths = [
+            hls_granules_paths_tile = [
                 sublist for sublist in hls_granules_paths if
                 sublist and UTM_TILE_NAME in sublist[0]
                 ]
-        
+
         fire_perimeters_in_utm = processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_NAME]
         utm_years = fire_perimeters_in_utm.tst_year.unique()
         
@@ -624,7 +629,7 @@ if __name__ == "__main__":
         
                 # Search for granules
                 hls_granules_paths_pre = search_files_by_doy_range(
-                    hls_granules_paths, START_DATE_PRE, END_DATE_PRE)
+                    hls_granules_paths_tile, START_DATE_PRE, END_DATE_PRE)
                 hls_granules_paths_post = search_files_by_doy_range(
                     hls_granules_paths, START_DATE_POST, END_DATE_POST)
 
@@ -635,17 +640,17 @@ if __name__ == "__main__":
                     temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"
                     with open(temp_tile_file, "w") as temp_file:
                         temp_file.write(UTM_TILE_NAME + "\n")
-            
+
                     subprocess.run(["bash", "code/data_processing/getHLS.sh", temp_tile_file, search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
                     os.remove(temp_tile_file)
 
                 hls_granules_paths_pre = search_files_by_doy_range(
-                    hls_granules_paths, START_DATE_PRE, END_DATE_PRE)
+                    hls_granules_paths_tile, START_DATE_PRE, END_DATE_PRE)
                 
-                hls_granules_paths = hls_granules_paths_pre + hls_granules_paths_post
+                hls_granules_paths_combined = hls_granules_paths_pre + hls_granules_paths_post
     
             # Flatten granules into a list of (granule_path, metadata)
-            for granule in hls_granules_paths:
+            for granule in hls_granules_paths_combined:
                 granule_jobs.append((granule, UTM_TILE_NAME, year))
 
     print(f"Total granules to process: {len(granule_jobs)}")

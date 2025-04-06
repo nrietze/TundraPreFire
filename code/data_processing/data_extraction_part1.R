@@ -161,8 +161,9 @@ TABLE_DIR <- ifelse(OS == "Linux",
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
-  filter(tst_year >= 2017) %>% 
-  filter(fireid %in% TEST_ID)
+  filter(tst_year >= 2017) 
+
+if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 

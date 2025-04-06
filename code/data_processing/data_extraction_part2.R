@@ -114,7 +114,7 @@ get_ls_datetime <- function(raster){
 severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
 
@@ -129,8 +129,9 @@ OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
-  filter(tst_year >= 2017) %>% 
-  filter(fireid %in% TEST_ID)
+  filter(tst_year >= 2017) 
+
+if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 

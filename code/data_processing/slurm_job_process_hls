@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=arrayJob
-#SBATCH --time=0-02:00:00   ## days-hours:minutes:seconds
+#SBATCH --time=0-05:00:00   ## days-hours:minutes:seconds
 #SBATCH --array=0-19
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)

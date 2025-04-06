@@ -80,40 +80,39 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
   model <- model_fit_smoothedspline(x,y,spar)
   
   # Generate predictions for curve plotting (for time-period doy 130-300) 
-  pred <- data.frame(predict(model, data.frame(doy = 130:300))) %>% 
-    rename(doy = doy, index = doy.1)
+  pred <- predict(model, data.frame(doy = 130:300))
+  pred_df <- data.table(doy = 130:300, index = pred$y)
+  colnames(pred_df)[2] = "index"
   
   # Get DOY of burn
   doy_burn <- yday(full_data$burn_date[1])
   
-  pred_before_burn <- pred %>% 
-    filter(doy < doy_burn) %>% 
-    mutate(TI_index = revcumsum(index),
-           days_before_fire = doy_burn - doy)
+  pred_before_burn <- pred_df[doy < doy_burn]
+  pred_before_burn[, `:=`(
+    TI_index = revcumsum(index),
+    days_before_fire = doy_burn - doy
+  )]
   
   # Prepare output vector of 40-day predictions
-  out_data <- pred_before_burn %>% 
-    filter(days_before_fire <= 40) %>% 
-    select(days_before_fire, TI_index) %>% 
-    pivot_wider(
-      names_from = days_before_fire,
-      values_from = TI_index,
-      names_prefix = "d_prefire_"
-    ) 
+  out_data <- pred_before_burn[days_before_fire <= 40, .(ObservationID = full_data$ObservationID[1], 
+                                                         TI_index, 
+                                                         days_before_fire)] 
   
-  return(out_data)
+  # Reformat as wide datafrmae
+  out_data_wide <- dcast(out_data, ObservationID ~ days_before_fire,
+                         value.var = "TI_index", 
+                         fun.aggregate = list)
+  
+  return(out_data_wide)
 }
 
 #  function to process each ObservationID
 process_group <- function(dt, index_name) {
   x <- dt$doy
-  y <- select(dt,contains(index_name)) %>% 
-    pull()
+  y <- dt[[index_name]]
   
   result <- model_index_smoothedspline(x, y, dt, spar = 0.5)
   
-  result <- as.data.table(result) 
-  result[, ObservationID := dt$ObservationID[1]]
   return(result)
 }
 
@@ -158,22 +157,23 @@ DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 HLS_DIR <- paste0(DATA_DIR,"raster/hls/")
 TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
-FIRE_IDs <- c(14664,10792,17548)
+TEST_ID <- c(14664,10792,17548)
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
-SAVE_FIGURES <- TRUE
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 # Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017)
+
+if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 # Load fire perimeters
 fire_perimeters <- vect(
   paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 )
 
-for (FIRE_ID in FIRE_IDs){
+for (FIRE_ID in final_lut$fireid){
   cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
   
   filename <- sprintf("model_dataframes/%s_%s_model_dataframe.csv",
@@ -184,6 +184,7 @@ for (FIRE_ID in FIRE_IDs){
     fire_attrs <- filter(final_lut, fireid == FIRE_ID)
     
     # Load all data
+    cat("Loading data...\n")
     data_list <- load_data(fire_attrs, severity_index)
     
     df_filtered <- data_list[[1]]
@@ -198,24 +199,23 @@ for (FIRE_ID in FIRE_IDs){
     # ==================================.
     spar <- 0.5
     
-    cat("Fitting smoothing splines... \n")
+    cat("Fitting smoothing splines for NDMI... \n")
     
     # convert to data table for faster processing
     setDT(df_filtered) 
     
-    # Set up parallel processing
-    plan(multisession, workers = 11)
-    
-    # Apply spline to each NDMI time series point (filter out NA and points with < 4 obs.)
-    df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDMI)][,
-                                                            if (.N >= 4) .SD,
-                                                            by = ObservationID]
+    plan(multisession, workers = 12)  # Parallel processing setup
+      
+    df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDMI) & .N >= 4, ]
+      
+    # Group by ObservationID and apply function in parallel
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
     results <- future_lapply(df_list, process_group, index_name = "NDMI")
     
-    # Combine results efficiently
     ndmi_smooth <- rbindlist(results, fill = TRUE) %>% 
       rename_with(~ paste0("NDMI.d_prefire_", .), -ObservationID)
+    
+    cat("Fitting smoothing splines for NDVI... \n")
     
     # Apply spline to each NDMI time series point (filter out NA and points with < 4 obs.)
     df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDVI)][,
@@ -236,6 +236,7 @@ for (FIRE_ID in FIRE_IDs){
     if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
       data_index <- data_index %>% 
         mutate(descals_burn_class = factor(descals_burn_class,
+                                           levels = c(0,1),
                                            labels = c("unburned","burned")))
     }
     
@@ -269,6 +270,7 @@ for (FIRE_ID in FIRE_IDs){
     if (any(df_filtered$descals_burn_class != 99,na.rm = T)){
       data_reduced <- data_reduced %>% 
         mutate(descals_burn_class = factor(descals_burn_class,
+                                           levels = c(0,1),
                                            labels = c("unburned","burned")))
     }
     
