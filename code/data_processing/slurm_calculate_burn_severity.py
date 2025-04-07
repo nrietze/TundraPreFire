@@ -19,6 +19,7 @@ from joblib import Parallel, delayed
 
 os.chdir("code/data_processing")
 import HLS_preprocessing as hlsPrep
+from Optimality_function import Spectral_optimality
 os.chdir("../..")
 
 # %% 0. Configure functions
@@ -96,6 +97,30 @@ def time_index_from_filenames(files):
     Helper function to create a pandas DatetimeIndex
     '''
     return [datetime.datetime.strptime(f.split('.')[-4], '%Y%jT%H%M%S') for f in files]
+
+def ConcatRasters(flist, varname,chunk_size = dict(band=1, x=3600, y=3600)):
+    """Function to load rasters and merge them into an xr.DataArray.
+
+    Args:
+        flist (list): List of raster files to load into the DataArray.
+        varname (str): Name of the band/index that is assigned to the DataArray.
+        chunk_size (dict, optional): Chunk size for efficient data loading. Defaults to dict(band=1, x=3600, y=3600).
+
+    Returns:
+        xr.DataArray: DataArray containing time-sorted rasters from the filelist.
+    """
+    if varname in ["NBR","GEMI"]:
+        time = xr.Variable('time', time_index_from_filenames(flist))
+    else:
+        time = xr.Variable('time',
+                            [datetime.datetime.strptime(os.path.basename(f).split('.')[3], '%Y%jT%H%M%S') for f in flist])
+    
+    xr_da = xr.concat([rxr.open_rasterio(f, mask_and_scale=True,
+                                            chunks=chunk_size
+                                            ).squeeze('band',drop=True) for f in flist], dim=time)
+    xr_da.name = varname
+    
+    return xr_da.sortby("time")
 
 def calculate_severity_metrics(gemi_prefire_composite,
                                gemi_postfire_composite,
@@ -180,7 +205,17 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         # Create list of NBR and GEMI files for that tile and year
         nbr_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}*NBR.tif"))
         gemi_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}*GEMI.tif"))
-
+        
+        # Create list of HLS NIR and SWIR files
+        nir1_files_lsat = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.L30.*{utm_tileid}*B05.tif"),recursive=True) #Landsat NIR1
+        nir1_files_s2 = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.S30.*{utm_tileid}*B8A.tif"),recursive=True) #Sentinel-2 NIR1
+        
+        nir1_files = nir1_files_lsat + nir1_files_s2
+        
+        swir2_files_lsat = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.L30.*{utm_tileid}*B07.tif"),recursive=True) #Landsat SWIR2
+        swir2_files_s2 = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.S30.*{utm_tileid}*B12.tif"),recursive=True) #Sentinel-2 SWIR2
+        swir2_files = swir2_files_lsat + swir2_files_s2
+        
         # Only use scenes with <= 20 % clear pixels in the perimeter to process further
         good_nbr_files = []
         good_gemi_files = []
@@ -207,25 +242,13 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
 
         print(f"Found {len(good_nbr_files)} NBR files with >{MIN_VALID_PERCENTAGE}% valid pixels for fire perimeter: {perimeter.fireid}.")
         
-        time = xr.Variable('time', time_index_from_filenames(good_nbr_files))
-        
-        # define chunk size for data loading
-        chunk_size = dict(band=1, x=3600, y=3600)
-    
         # create image stack of NBR/GEMI scenes for that tile
-        nbr_ts = xr.concat([rxr.open_rasterio(f, mask_and_scale=True,
-                                                chunks=chunk_size
-                                                ).squeeze('band',drop=True) for f in good_nbr_files], dim=time)
-        nbr_ts.name = "NBR"
-
-        time = xr.Variable('time', time_index_from_filenames(good_gemi_files))
-        gemi_ts = xr.concat([rxr.open_rasterio(f, mask_and_scale=True,
-                                                chunks=chunk_size
-                                                ).squeeze('band',drop=True) for f in good_gemi_files], dim=time)
-        gemi_ts.name = "GEMI"
-
-        gemi_ts = gemi_ts.sortby("time")
-        nbr_ts = nbr_ts.sortby("time")
+        nbr_ts = ConcatRasters(good_nbr_files, "NBR")
+        gemi_ts = ConcatRasters(good_gemi_files, "GEMI")
+    
+        # create image stack of NIR1 & SWIR2
+        nir1_ts = ConcatRasters(nir1_files, "NIR1")
+        swir2_ts = ConcatRasters(swir2_files, "SWIR2")
         
         # get date from earliest fire end in that tile, from then on start matching NBR pairs until Oct 31
         MAX_TIMEDELTA = 7
@@ -236,7 +259,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         last_search_date_post = f"{year}-10-31"
         last_search_date_pre = f"{year-1}-10-31"
         
-        # Resample to daily resolution and compute max composite
+        # Resample to daily resolution with max composite (just needed for dates of postfire period)
         nbr_ts.coords['date'] = nbr_ts.time.dt.floor('1D') # create date coord. for grouping
         nbr_daily = nbr_ts.groupby("date").max()
         gemi_ts.coords['date'] = gemi_ts.time.dt.floor('1D')
@@ -264,36 +287,44 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                 print(f"All severity rasters for tile {utm_tileid} on {pf_string} already exists. Skipping calculation.\n")
                 continue
 
-            print(f"Calculating severity rasters for tile {utm_tileid} on {pf_string}...\n") 
+            print(f"Calculating severity rasters for tile {utm_tileid} on {pf_string}...\n")
             
             # Define post-fire search window (±7 days of same day last year)
             postfire_start = postfire_date - pd.Timedelta(days=MAX_TIMEDELTA)
             postfire_end = postfire_date + pd.Timedelta(days=MAX_TIMEDELTA)
         
             # Select post-fire data
-            postfire_gemi = gemi_daily.sel(date=slice(postfire_start, postfire_end))
-            postfire_nbr = nbr_daily.sel(date=slice(postfire_start, postfire_end))
+            postfire_gemi = gemi_ts.sel(time=slice(postfire_start, postfire_end))
+            postfire_nbr = nbr_ts.sel(time=slice(postfire_start, postfire_end))
+            
+            postfire_nir1 = nir1_ts.sel(time=slice(postfire_start, postfire_end))
+            postfire_swir2 = swir2_ts.sel(time=slice(postfire_start, postfire_end))
         
-            # Median composite over available days
-            gemi_postfire_composite = postfire_gemi.min(dim="date")
-            nbr_postfire_composite = postfire_nbr.min(dim="date")
-
-            # Use single-day post-fire scene as basis for bitemporal index
-            # gemi_postfire_composite = gemi_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
-            # nbr_postfire_composite = nbr_daily.sel(date=postfire_date.strftime("%Y-%m-%d"))
+            # Minimum composite over available days
+            gemi_postfire_composite = postfire_gemi.min(dim="time")
+            nbr_postfire_composite = postfire_nbr.min(dim="time")
+            
+            nir1_postfire_composite = postfire_nir1.min(dim="time")
+            swir2_postfire_composite = postfire_swir2.min(dim="time")
 
             # Define pre-fire search window (±7 days of same day last year)
             prefire_start = postfire_date - relativedelta(years=1) - pd.Timedelta(days=MAX_TIMEDELTA)
             prefire_end = postfire_date - relativedelta(years=1) + pd.Timedelta(days=MAX_TIMEDELTA)
         
             # Select pre-fire composites
-            prefire_gemi = gemi_daily.sel(date=slice(prefire_start, prefire_end))
-            prefire_nbr = nbr_daily.sel(date=slice(prefire_start, prefire_end))
-        
-            if prefire_gemi.date.size > 0 and prefire_nbr.date.size > 0:  # Ensure pre-fire data exists
+            prefire_gemi = gemi_ts.sel(time=slice(prefire_start, prefire_end))
+            prefire_nbr = nbr_ts.sel(time=slice(prefire_start, prefire_end))
+            
+            prefire_nir1 = nir1_ts.sel(time=slice(prefire_start, prefire_end))
+            prefire_swir2 = swir2_ts.sel(time=slice(prefire_start, prefire_end))
+            
+            if prefire_gemi.time.size > 0 and prefire_nbr.time.size > 0:  # Ensure pre-fire data exists
                 # Median composite over available days
-                gemi_prefire_composite = prefire_gemi.mean(dim="date")
-                nbr_prefire_composite = prefire_nbr.mean(dim="date")
+                gemi_prefire_composite = prefire_gemi.mean(dim="time")
+                nbr_prefire_composite = prefire_nbr.mean(dim="time")
+                
+                nir1_prefire_composite = prefire_nir1.min(dim="time")
+                swir2_prefire_composite = prefire_swir2.min(dim="time")
 
                 calculate_severity_metrics(
                     gemi_prefire_composite, gemi_postfire_composite,
@@ -304,6 +335,24 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                     MIN_VALID_PERCENTAGE=1,
                     OUT_DIR=OUT_DIR
                 )
+                
+                ypre=nir1_prefire_composite.to_numpy()
+                xpre=swir2_prefire_composite.to_numpy()
+                ypost=nir1_postfire_composite.to_numpy()
+                xpost=swir2_postfire_composite.to_numpy()
+                
+                optimality = Spectral_optimality(xpre,ypre,xpost,ypost)
+                
+                opt_raster_out = nir1_prefire_composite.copy()
+                opt_raster_out.data = optimality
+                opt_raster_out.name = "Optimality"
+                
+                out_name = os.path.join(os.path.dirname(OUT_DIR),
+                                        'optimality_rasters',
+                                        f"optimality_{utm_tileid}_{pf_string}.tif")
+                
+                # Export as Cloud Optimized GeoTIFF
+                opt_raster_out.rio.to_raster(raster_path=out_name, driver="COG")
                 
             else:
                 print(f"No pre-fire match found for {postfire_date}")
@@ -318,10 +367,12 @@ if __name__ == "__main__":
         DATA_FOLDER = 'data/' # on local machine
         PROCESSED_HLS_DIR = "data/raster/hls/processed"
         OUT_FOLDER = './data/raster/hls/severity_rasters'
+        HLS_PARENT_PATH = os.path.dirname(PROCESSED_HLS_DIR)
     else:
         DATA_FOLDER = '~/data/' # on sciencecluster
         PROCESSED_HLS_DIR = "/home/nrietz/scratch/raster/hls/processed/" # Set original data paths
         OUT_FOLDER = '/data/nrietz/raster/hls/severity_rasters'
+        HLS_PARENT_PATH = os.path.dirname(PROCESSED_HLS_DIR)
     
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
     processing_lut = pd.read_csv(
