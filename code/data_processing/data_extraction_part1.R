@@ -151,7 +151,8 @@ OVERWRITE_DATA <- FALSE
 pct_cutoff <- 0.5
 
 # Set proportion of sampled values per bin
-frac_to_sample <- 0.1
+frac_to_sample <- 0.01
+frac_int <- frac_to_sample *100
 
 OS <- Sys.info()[['sysname']]
 
@@ -193,7 +194,7 @@ for(i in 1:nrow(final_lut)) {
   print(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
   
   # Load burn severity rasters
-  severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
+  severity_rasters <- list.files(path = "~/scratch/raster/hls/severity_rasters",
                                  pattern = sprintf("^%s_%s_%s.*\\.tif$",
                                                    severity_index,UTM_TILE_ID,year),
                                  full.names = TRUE
@@ -294,8 +295,8 @@ for(i in 1:nrow(final_lut)) {
     mask(fire_perimeter_buffered, updatevalue = NA) %>% 
     crop(fire_perimeter_buffered) * 1000
   
-  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points.gpkg",
-                                 FIRE_ID)
+  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct.gpkg",
+                                 FIRE_ID,frac_int)
   
   # Sample points only when gpkg file doens't exist
   if (!file.exists(fname_sample_points) || OVERWRITE_DATA){

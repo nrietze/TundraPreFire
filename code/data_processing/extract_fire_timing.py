@@ -88,7 +88,12 @@ if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
 else:
     print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
 
-gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers","*_sample_points.gpkg"))
+# Set proportion of sampled values per bin
+frac_to_sample = 0.01
+frac_int = int(frac_to_sample *100)
+
+gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers",f"*_sample_points_{frac_int}pct.gpkg"))
+print("Number of files to process:",len(gpkg_list))
 
 #%% 2. Apply burn date extraction to all fire perimeters
 for path in gpkg_list:

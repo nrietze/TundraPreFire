@@ -155,7 +155,7 @@ model_LST_polynomial <- function(x,y,full_data) {
 OS <- Sys.info()[['sysname']]
 DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 
-HLS_DIR <- paste0(DATA_DIR,"raster/hls/")
+HLS_DIR <- "~/scratch/raster/hls/"
 TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
 # TEST_ID <- c(14664,10792,17548)

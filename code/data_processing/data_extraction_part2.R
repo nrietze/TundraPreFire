@@ -121,11 +121,16 @@ OVERWRITE_DATA <- FALSE
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
+frac_to_sample <- 0.01
+frac_int <- frac_to_sample *100
+
 OS <- Sys.info()[['sysname']]
 
 # Output directory for sample tables
 TABLE_DIR <- ifelse(OS == "Linux","~/data/tables/","data/tables/")
-OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
+OUT_DIR <- paste0(TABLE_DIR,"sampled_data/",frac_int,"pct/")
+
+dir.create(OUT_DIR, showWarnings = FALSE)
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
@@ -170,7 +175,7 @@ for(i in 1:nrow(final_lut)) {
               FIRE_ID,UTM_TILE_ID))
   
   # Load burn severity rasters
-  severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
+  severity_rasters <- list.files(path = "~/scratch/raster/hls/severity_rasters",
                                  pattern = sprintf("^%s_%s_%s.*\\.tif$",
                                                    severity_index,UTM_TILE_ID,year),
                                  full.names = TRUE)
@@ -183,8 +188,8 @@ for(i in 1:nrow(final_lut)) {
   rast_burn_severity <- rast(severity_rasters[1])
   
   # Load sample points with burn dates
-  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
-                                 FIRE_ID)
+  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct_burn_date.gpkg",
+                                 FIRE_ID,frac_to_sample*100)
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(rast_burn_severity)) %>% 
     mutate(ObservationID = 1:nrow(.))
@@ -237,7 +242,7 @@ for(i in 1:nrow(final_lut)) {
   cat("Loading NDMI samples...\n")
   filename <- sprintf("NDMI_sampled_%s_%s.csv",FIRE_ID,year)
   
-  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = cols()) %>% 
+  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
     as_tibble()
   df_ndmi <- df_ndmi %>% 
     mutate(Time = ymd_hms(Time))
@@ -246,7 +251,7 @@ for(i in 1:nrow(final_lut)) {
   cat("Loading NDVI samples...\n")
   filename <- sprintf("NDVI_sampled_%s_%s.csv",FIRE_ID,year)
   
-  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = cols()) %>% 
+  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
     as_tibble()
   df_ndvi <- df_ndvi %>% 
     mutate(Time = ymd_hms(Time))
