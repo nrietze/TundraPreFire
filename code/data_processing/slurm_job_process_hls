@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=arrayJob
-#SBATCH --time=0-05:00:00   ## days-hours:minutes:seconds
+#SBATCH --time=0-10:00:00   ## days-hours:minutes:seconds
 #SBATCH --array=0-19
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
@@ -12,6 +12,14 @@ module load mamba
 source activate lpdaac_vitals
 
 cd ~/TundraPreFire/
+
+# Toggle processing steps:
+RUN_HLS_DOWNLOAD=0
+RUN_HLS_PROCESSING=1
+RUN_SEVERITY_SCRIPT=1
+
+# Set up files for parallel jobs:
+# ------
 
 UTM_TILEID_FILE="code/data_processing/tileid_file.txt"
 
@@ -31,18 +39,22 @@ END=$(( START + CHUNK_SIZE - 1 ))
 # Extract lines for this task and export to temporary file
 sed -n "${START},${END}p" "$UTM_TILEID_FILE" > tmp/task_${SLURM_ARRAY_TASK_ID}.txt
 
-# Execute HLS downloading script with the split UTM tile id file
-# echo 'HLS download starting.'
-# python code/data_processing/HLS_downloading.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
-# echo 'finished'
+if [ $RUN_HLS_DOWNLOAD = 1 ]; then
+  # Execute HLS downloading script with the split UTM tile id file
+  echo 'HLS download starting.'
+  python code/data_processing/HLS_downloading.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
+fi
 
-# Execute HLS preprocessing script with the split UTM tile id file
-metrics='["NBR","GEMI"]'
+if [ $RUN_HLS_PROCESSING = 1 ]; then
+  # Execute HLS preprocessing script with the split UTM tile id file
+  metrics='["NDMI","NDVI","NBR","GEMI"]'
 
-echo 'HLS preprocessing starting.'
-python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
+  echo 'HLS preprocessing starting.'
+  python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
+fi
 
-echo 'Burn severity calculation starting'
-python code/data_processing/slurm_calculate_burn_severity.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
-
+if [ $RUN_SEVERITY_SCRIPT = 1 ]; then
+  echo 'Burn severity calculation starting'
+  python code/data_processing/slurm_calculate_burn_severity.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt
+fi
 echo 'finished'

@@ -143,9 +143,9 @@ severity_index <- "dNBR"
 index_name <- "NDMI"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
-TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
+# TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
@@ -159,6 +159,17 @@ OS <- Sys.info()[['sysname']]
 TABLE_DIR <- ifelse(OS == "Linux", 
                     "~/data/tables/","data/tables/")
 
+# Load features (fire perimeters and ROIs)
+fire_perimeters <- vect(
+  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+)
+
+top20_fires <- fire_perimeters %>%
+  arrange(desc(farea)) %>% 
+  slice_head(n = 20) 
+
+TEST_ID <- top20_fires$fireid
+
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) 
@@ -166,11 +177,6 @@ final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
 if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
-
-# Load features (fire perimeters and ROIs)
-fire_perimeters <- vect(
-  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
-)
 
 # 2. Execute spatial sampling ----
 # =================================.
@@ -192,6 +198,10 @@ for(i in 1:nrow(final_lut)) {
                                                    severity_index,UTM_TILE_ID,year),
                                  full.names = TRUE
                                  )
+  if (length(severity_rasters) == 0){
+    cat("No burn severity raster for this UTM tile exists.\n")
+    next
+  }
   
   rast_burn_severity <- rast(severity_rasters[1])
   

@@ -114,9 +114,9 @@ get_ls_datetime <- function(raster){
 severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
-TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
+# TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
@@ -140,6 +140,11 @@ fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
+top20_fires <- fire_perimeters %>%
+  arrange(desc(farea)) %>% 
+  slice_head(n = 20) 
+
+TEST_ID <- top20_fires$fireid
 # Run data_extraction_part1.R first
 
 # 2. Run burn date assignment in python ----
@@ -169,6 +174,12 @@ for(i in 1:nrow(final_lut)) {
                                  pattern = sprintf("^%s_%s_%s.*\\.tif$",
                                                    severity_index,UTM_TILE_ID,year),
                                  full.names = TRUE)
+  
+  if (length(severity_rasters) == 0){
+    cat("No burn severity raster for this UTM tile exists.\n")
+    next
+  }
+  
   rast_burn_severity <- rast(severity_rasters[1])
   
   # Load sample points with burn dates
@@ -226,7 +237,7 @@ for(i in 1:nrow(final_lut)) {
   cat("Loading NDMI samples...\n")
   filename <- sprintf("NDMI_sampled_%s_%s.csv",FIRE_ID,year)
   
-  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = cols()) %>% 
     as_tibble()
   df_ndmi <- df_ndmi %>% 
     mutate(Time = ymd_hms(Time))
@@ -235,7 +246,7 @@ for(i in 1:nrow(final_lut)) {
   cat("Loading NDVI samples...\n")
   filename <- sprintf("NDVI_sampled_%s_%s.csv",FIRE_ID,year)
   
-  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = cols()) %>% 
     as_tibble()
   df_ndvi <- df_ndvi %>% 
     mutate(Time = ymd_hms(Time))
