@@ -470,7 +470,7 @@ def joblib_hls_preprocessing(files: list,
     
     for index_name in band_index:
         logger.info(f"Calculating: {index_name}")
-        
+
         # Generate output name from the original filename
         out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}.tif"
         
@@ -486,6 +486,8 @@ def joblib_hls_preprocessing(files: list,
             if OVERWRITE_DATA:
                 logger.info(f"{out_name} exists but will be overwritten.")
                 
+                print(f"Overwriting & processing: {out_path}\n")
+                
                 # Load existing data
                 spectral_index = calc_index(files, index_name,
                                             out_folder = out_folder,
@@ -498,6 +500,8 @@ def joblib_hls_preprocessing(files: list,
         
         # "else" necessary to handle remasking of existing tiles in previous "if"
         else: 
+            print(f"Processing: {out_path}\n")
+            
             # Calculate spectral index
             spectral_index = calc_index(files, index_name,
                                         out_folder = out_folder,
@@ -507,9 +511,10 @@ def joblib_hls_preprocessing(files: list,
         
         # Remove any observations that are entirely fill value
         if np.nansum(spectral_index.data) == 0.0:
+            print("File entirely fill values. Moving on.\n")
             logger.info(f"File: {files[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
             continue
-
+        
         # Extract UTM EPSG code for reprojection
         file_utm_zone = original_name.split(".")[2]
         utm_epsg_code = 32600 + int(file_utm_zone[1:3])
@@ -520,9 +525,11 @@ def joblib_hls_preprocessing(files: list,
         
         # Export to COG tiffs
         spectral_index.rio.to_raster(raster_path = out_path, 
-                                     driver = 'COG')
+                                    driver = 'COG')
+        print("export done. \n")
     
     logger.info("--- %s seconds ---" % (time.time() - start_time))
+    return None
 
 
 # %% Execute pararellized processing
@@ -553,7 +560,7 @@ if __name__ == "__main__":
 
     # Remove old joblib log files
     for log_file in glob("logs/log_*.txt"):
-        os.remove(log_file)
+       os.remove(log_file)
     
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
     processing_lut = pd.read_csv(
@@ -612,8 +619,10 @@ if __name__ == "__main__":
             print(f"Processing UTM tile {UTM_TILE_NAME}, Year {year}")
 
             if any(pattern in band_index for pattern in ["NBR","GEMI"]):
+                curyear_fire_perimeters_in_utm = fire_perimeters_in_utm.loc[fire_perimeters_in_utm.tst_year == year]
+                
                 # Get latest end date of fire in that year
-                latest_tile_fire_end = max(fire_perimeters_in_utm.ted_date)
+                latest_tile_fire_end = max(curyear_fire_perimeters_in_utm.ted_date)
         
                 # Compute pre-fire search range
                 search_start_date_dynamic = (latest_tile_fire_end - pd.Timedelta(days=MAX_TIMEDELTA) - relativedelta(years=1)).strftime("%Y-%m-%d")
@@ -626,12 +635,13 @@ if __name__ == "__main__":
                 END_DATE_PRE = f"{year-1}-10-31T23:59:59"
                 START_DATE_POST = latest_tile_fire_end.strftime("%Y-%m-%dT%H:%M:%S")
                 END_DATE_POST = f"{year}-10-31T23:59:59"
-        
+
+                print(START_DATE_PRE, "----", END_DATE_PRE,"\n")
                 # Search for granules
                 hls_granules_paths_pre = search_files_by_doy_range(
                     hls_granules_paths_tile, START_DATE_PRE, END_DATE_PRE)
                 hls_granules_paths_post = search_files_by_doy_range(
-                    hls_granules_paths, START_DATE_POST, END_DATE_POST)
+                    hls_granules_paths_tile, START_DATE_POST, END_DATE_POST)
 
                 if hls_granules_paths_pre:
                     print("Pre-fire HLS granules downloaded already, skipping download...\n")
@@ -646,7 +656,7 @@ if __name__ == "__main__":
 
                 hls_granules_paths_pre = search_files_by_doy_range(
                     hls_granules_paths_tile, START_DATE_PRE, END_DATE_PRE)
-                
+
                 hls_granules_paths_combined = hls_granules_paths_pre + hls_granules_paths_post
     
             # Flatten granules into a list of (granule_path, metadata)
@@ -658,7 +668,6 @@ if __name__ == "__main__":
     # Set up final processing function
     def process_granule(granule, UTM_TILE_NAME, year):
         granulename = os.path.basename(granule[0]).split(".")[3]
-        print(f"Processing granule {granulename} for UTM tile {UTM_TILE_NAME}, Year {year}")
         joblib_hls_preprocessing(granule, band_index, bit_nums, 
                                  OUT_FOLDER, OVERWRITE_DATA, skip_source=None)
     

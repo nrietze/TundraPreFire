@@ -29,42 +29,72 @@ knitr::opts_chunk$set
 
 # User functions
 ```{r}
-read_hls_data_frames <- function(index_name, FIRE_ID,year,
-                                 sample_points, dnbr_sample){
-  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
+load_data <- function(fire_attrs,severity_index){
+  # Fire perimeter attributes
+  UTM_TILE_ID <- fire_attrs$opt_UTM_tile
+  year <- fire_attrs$tst_year
   
-  df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
-    select(-1) %>% 
-    mutate(dNBR = dnbr_sample$dNBR) %>% 
+  SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
+  
+  # Load dNBR raster
+  severity_raster_list <- list.files(path = paste0(HLS_DIR,"severity_rasters"),
+                                     pattern = sprintf("^%s_%s_%s.*\\.tif$",
+                                                       severity_index,UTM_TILE_ID,year),
+                                     full.names = TRUE)
+  severity_raster <- rast(severity_raster_list[1]) * SCALE_FACTOR
+  
+  # Subset to single perimeter
+  selected_fire_perimeter <- fire_perimeters %>% 
+    filter(fireid  == FIRE_ID) %>%
+    project(crs(severity_raster))
+  
+  # Buffer the selected fire perimeter
+  fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
+  
+  cropped_severity_raster <- severity_raster %>% 
+    mask(fire_perimeter_buffered, updatevalue = NA) %>% 
+    crop(fire_perimeter_buffered)
+  
+  # Load sample points (with associated burn dates)
+  fname_sample_points <-  paste0(
+    DATA_DIR,
+    sprintf("feature_layers/%s_sample_points_burn_date.gpkg",FIRE_ID)
+  )
+  sample_points <- vect(fname_sample_points) %>% 
+    project(crs(severity_raster)) %>% 
+    mutate(ObservationID = 1:nrow(.))
+  
+  # Extract data at random points 
+  severity_raster_sample <- terra::extract(severity_raster, sample_points,
+                                           ID = FALSE, xy = TRUE)
+  
+  # Load filtered and formatted dataframe
+  fn_filtered_df <- paste0(TABLE_DIR,sprintf(
+    "sampled_data/%s_%s_merged_filtered_%sth_pctile.csv",
+    FIRE_ID, year,pct_cutoff*100
+  ))
+  
+  df_filtered <- read_csv2(fn_filtered_df, col_names = TRUE) %>% 
     as_tibble() %>% 
-    mutate(burn_date = sample_points$burn_date,
-           descals_burn_class = sample_points$descals_burned)
+    mutate(date = as.Date(date),
+           burn_date = as.Date(burn_date),
+           doy = yday(date))
   
-  if (index_name == "LST"){
-    fmt = "X%Y.%m.%d"
-  } else{
-    fmt = "X%Y.%m.%d.%H.%M.%S"
-  }
-  
-  df_long <- df %>%
-    mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-    gather(key = "Time", value = index_name, 
-           -c(ObservationID,dNBR,burn_date,descals_burn_class)) %>% 
-    mutate(Time = as.POSIXct(Time, format = fmt)) 
-  
-  return(df_long)
+  return(list(df_filtered,
+              severity_raster_sample,
+              sample_points,
+              cropped_severity_raster,
+              selected_fire_perimeter))
 }
+
 ```
 
 
 # 0. Load and prepare data
 ```{r, include=FALSE}
 # Config, loading and preparing data
-HLS_DIR <- "~/data/raster/hls/"
-TABLE_DIR <- "~/data/tables/"
 index_name = "NDMI"
-FIRE_ID <- 14211 # fire ID for part of the large fire scar
-
+FIRE_ID <- 14664
 severity_index <- "dNBR"
 
 pct_cutoff <- 0.5
@@ -72,61 +102,35 @@ pct_cutoff <- 0.5
 OS <- Sys.info()[['sysname']]
 
 # Output directory for sample tables
-TABLE_DIR <- ifelse(OS == "Linux", 
-                    "~/data/tables/","data/tables/")
+DATA_DIR <- ifelse(OS == "Linux", "~/data/","data/")
+TABLE_DIR <- ifelse(OS == "Linux", "~/data/tables/","data/tables/")
+HLS_DIR <- "~/data/raster/hls/"
 
-# Load lookup tables
+# Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
-  filter(tst_year >= 2017) %>% 
-  filter(fireid %in% FIRE_ID)
+  filter(tst_year >= 2017)
 
-UTM_TILE_ID <- "54WXE"# final_lut$opt_UTM_tile
-year <- final_lut$tst_year
-
-# Load dNBR raster
-severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
-                                 pattern = sprintf("^%s_%s_%s.*\\.tif$",
-                                                   severity_index,UTM_TILE_ID,year),
-                                 full.names = TRUE)
-dnbr <- rast(severity_rasters[1]) * 1000
-
-# Load features (fire perimeters and ROIs)
+# Load fire perimeters
 fire_perimeters <- vect(
-  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+  paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 )
 
-selected_fire_perimeter <- fire_perimeters %>% 
-  filter(fireid  == FIRE_ID) %>%
-  project(crs(dnbr))
+if (length(FIRE_ID) > 0){final_lut <- filter(final_lut,fireid %in% FIRE_ID)}
 
-# Buffer the selected fire perimeter
-fire_perimeter_buffered <- buffer(selected_fire_perimeter, 1200)
+fire_attrs <- filter(final_lut, fireid == FIRE_ID)
 
-dnbr_in_perimeter <- dnbr %>% 
-  mask(fire_perimeter_buffered, updatevalue = NA) %>% 
-  crop(fire_perimeter_buffered)
+data_list <- load_data(fire_attrs, severity_index)
+    
+df_filtered <- data_list[[1]]
+severity_raster_sample <- data_list[[2]]
+sample_points <- data_list[[3]]
+cropped_severity_raster <- data_list[[4]]
+selected_fire_perimeter <- data_list[[5]]
 
-# Load sampled points (with associated burn dates)
-fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
-                               FIRE_ID)
-sample_points <- vect(fname_sample_points) %>% 
-  project(crs(dnbr)) %>% 
-  mutate(ObservationID = 1:nrow(.))
+rm(data_list)
 
-# Extract data at random points 
-dnbr_sample <- terra::extract(dnbr, sample_points,
-                              ID = FALSE, xy = TRUE)
-
-# Load filtered and formatted dataframe
-fn_filtered_df <- sprintf(
-  "~/data/tables/sampled_data/%s_%s_merged_filtered_%sth_pctile.csv",
-  FIRE_ID, year,pct_cutoff*100
-  )
-
-df_filtered <- read.csv2(fn_filtered_df) %>% 
-    mutate(date = as.Date(date),
-           burn_date = as.Date(burn_date),
-           doy = yday(date))
+UTM_TILE_ID <- fire_attrs$opt_UTM_tile
+year <- fire_attrs$tst_year
 ```
 
 # 1. Descriptive statistics
@@ -137,14 +141,14 @@ binwidth <- 20
 
 # Plot dNBR map
 p1 <- ggplot() +
-  geom_spatraster(data = dnbr_in_perimeter) +
+  geom_spatraster(data = cropped_severity_raster) +
   scale_fill_viridis_c(option = "inferno",
                        na.value = "white",
-                       name = "dNBR") +
+                       name = severity_index) +
   theme_cowplot()
 
 # Plot dNBR for this map
-p2 <- ggplot(data = dnbr_in_perimeter, aes(x = dNBR)) +
+p2 <- ggplot(data = cropped_severity_raster, aes(x = !!sym(severity_index))) +
   geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
   xlim(c(-500,1000)) +
   labs(

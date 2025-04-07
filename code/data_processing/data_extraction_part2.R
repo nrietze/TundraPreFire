@@ -114,18 +114,23 @@ get_ls_datetime <- function(raster){
 severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
-TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
+# TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
+
+frac_to_sample <- 0.01
+frac_int <- frac_to_sample *100
 
 OS <- Sys.info()[['sysname']]
 
 # Output directory for sample tables
 TABLE_DIR <- ifelse(OS == "Linux","~/data/tables/","data/tables/")
-OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
+OUT_DIR <- paste0(TABLE_DIR,"sampled_data/",frac_int,"pct/")
+
+dir.create(OUT_DIR, showWarnings = FALSE)
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
@@ -140,6 +145,11 @@ fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
+top20_fires <- fire_perimeters %>%
+  arrange(desc(farea)) %>% 
+  slice_head(n = 20) 
+
+TEST_ID <- top20_fires$fireid
 # Run data_extraction_part1.R first
 
 # 2. Run burn date assignment in python ----
@@ -165,15 +175,21 @@ for(i in 1:nrow(final_lut)) {
               FIRE_ID,UTM_TILE_ID))
   
   # Load burn severity rasters
-  severity_rasters <- list.files(path = "~/data/raster/hls/severity_rasters",
+  severity_rasters <- list.files(path = "~/scratch/raster/hls/severity_rasters",
                                  pattern = sprintf("^%s_%s_%s.*\\.tif$",
                                                    severity_index,UTM_TILE_ID,year),
                                  full.names = TRUE)
+  
+  if (length(severity_rasters) == 0){
+    cat("No burn severity raster for this UTM tile exists.\n")
+    next
+  }
+  
   rast_burn_severity <- rast(severity_rasters[1])
   
   # Load sample points with burn dates
-  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_burn_date.gpkg",
-                                 FIRE_ID)
+  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct_burn_date.gpkg",
+                                 FIRE_ID,frac_to_sample*100)
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(rast_burn_severity)) %>% 
     mutate(ObservationID = 1:nrow(.))

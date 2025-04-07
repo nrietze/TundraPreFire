@@ -22,6 +22,7 @@ load_data <- function(fire_attrs,severity_index){
                                      pattern = sprintf("^%s_%s_%s.*\\.tif$",
                                                        severity_index,UTM_TILE_ID,year),
                                      full.names = TRUE)
+  
   severity_raster <- rast(severity_raster_list[1]) * SCALE_FACTOR
   
   # Subset to single perimeter
@@ -55,7 +56,7 @@ load_data <- function(fire_attrs,severity_index){
     FIRE_ID, year,pct_cutoff*100
   ))
   
-  df_filtered <- read_csv2(fn_filtered_df, col_names = TRUE) %>% 
+  df_filtered <- read_csv2(fn_filtered_df, col_names = cols()) %>% 
     as_tibble() %>% 
     mutate(date = as.Date(date),
            burn_date = as.Date(burn_date),
@@ -81,15 +82,15 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
   
   # Generate predictions for curve plotting (for time-period doy 130-300) 
   pred <- predict(model, data.frame(doy = 130:300))
-  pred_df <- data.table(doy = 130:300, index = pred$y)
-  colnames(pred_df)[2] = "index"
+  pred_df <- data.table(doy = 130:300, spectral_index = pred$y)
+  colnames(pred_df)[2] = "spectral_index"
   
   # Get DOY of burn
   doy_burn <- yday(full_data$burn_date[1])
   
   pred_before_burn <- pred_df[doy < doy_burn]
   pred_before_burn[, `:=`(
-    TI_index = revcumsum(index),
+    TI_index = revcumsum(spectral_index),
     days_before_fire = doy_burn - doy
   )]
   
@@ -154,24 +155,30 @@ model_LST_polynomial <- function(x,y,full_data) {
 OS <- Sys.info()[['sysname']]
 DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 
-HLS_DIR <- paste0(DATA_DIR,"raster/hls/")
+HLS_DIR <- "~/scratch/raster/hls/"
 TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
-TEST_ID <- c(14664,10792,17548)
+# TEST_ID <- c(14664,10792,17548)
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
+
+# Load fire perimeters
+fire_perimeters <- vect(
+  paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
+)
+
+top20_fires <- fire_perimeters %>%
+  arrange(desc(farea)) %>% 
+  slice_head(n = 20) 
+
+TEST_ID <- top20_fires$fireid
 
 # Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017)
 
 if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
-
-# Load fire perimeters
-fire_perimeters <- vect(
-  paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
-)
 
 for (FIRE_ID in final_lut$fireid){
   cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
@@ -204,15 +211,22 @@ for (FIRE_ID in final_lut$fireid){
     # convert to data table for faster processing
     setDT(df_filtered) 
     
-    plan(multisession, workers = 12)  # Parallel processing setup
+    plan(multisession, workers = 32)  # Parallel processing setup
       
     df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDMI) & .N >= 4, ]
       
     # Group by ObservationID and apply function in parallel
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- future_lapply(df_list, process_group, index_name = "NDMI")
+    results <- future_lapply(df_list, process_group, index_name = "DailyMeanNDMI")
     
-    ndmi_smooth <- rbindlist(results, fill = TRUE) %>% 
+    # unlist the results sublists to merge into data.table
+    results_clean <- lapply(results, function(dt) {
+      as.data.table(lapply(dt, function(col) {
+        if (is.list(col)) unlist(col, recursive = FALSE) else col
+      }))
+    })
+    
+    ndmi_smooth <- rbindlist(results_clean, fill = TRUE) %>% 
       rename_with(~ paste0("NDMI.d_prefire_", .), -ObservationID)
     
     cat("Fitting smoothing splines for NDVI... \n")
@@ -222,10 +236,16 @@ for (FIRE_ID in final_lut$fireid){
                                                             if (.N >= 4) .SD,
                                                             by = ObservationID] 
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- future_lapply(df_list, process_group, index_name = "NDVI")
+    results <- future_lapply(df_list, process_group, index_name = "DailyMeanNDVI")
+    
+    results_clean <- lapply(results, function(dt) {
+      as.data.table(lapply(dt, function(col) {
+        if (is.list(col)) unlist(col, recursive = FALSE) else col
+      }))
+    })
     
     # merge results into  data.table
-    ndvi_smooth <- rbindlist(results, fill = TRUE) %>% 
+    ndvi_smooth <- rbindlist(results_clean, fill = TRUE) %>% 
       rename_with(~ paste0("NDVI.d_prefire_", .), -ObservationID)
     
     # Merge dataframes
