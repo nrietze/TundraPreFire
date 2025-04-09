@@ -145,8 +145,6 @@ index_name <- "NDMI"
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- FALSE
 
-# TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
-
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
@@ -169,7 +167,8 @@ top20_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
   slice_head(n = 20) 
 
-TEST_ID <- top20_fires$fireid
+# TEST_ID <- top20_fires$fireid
+TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT

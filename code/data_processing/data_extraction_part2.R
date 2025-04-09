@@ -136,10 +136,6 @@ dir.create(OUT_DIR, showWarnings = FALSE)
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) 
 
-if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
-
-dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
-
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
@@ -150,6 +146,11 @@ top20_fires <- fire_perimeters %>%
   slice_head(n = 20) 
 
 TEST_ID <- top20_fires$fireid
+
+if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
+
+dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
+
 # Run data_extraction_part1.R first
 
 # 2. Run burn date assignment in python ----

@@ -176,7 +176,8 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                                   utm_tileid:str,
                                   processing_lut:pd.DataFrame,
                                   fire_polygons:gpd.GeoDataFrame,
-                                  OUT_DIR = None):
+                                  OUT_DIR = None,
+                                  OVERWRTIE_DATA = False):
 
     # List of severity indices that are calculated
     index_names = ["dNBR","dGEMI","RdNBR","RBR"]
@@ -188,6 +189,10 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
     fires_in_utm = processing_lut.loc[processing_lut.opt_UTM_tile == utm_tileid]
     
     fire_polygons_in_utm = fire_polygons.loc[np.isin(fire_polygons.fireid, fires_in_utm.fireid)]
+
+    print(f"Found {len(fire_polygons_in_utm)} perimeters to process for this UTM tile.")
+
+    HLS_PARENT_PATH = os.path.dirname(PROCESSED_HLS_DIR)
     
     # Loop through each year
     for (_,perimeter) in fire_polygons_in_utm.iterrows():
@@ -283,7 +288,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
             )]
 
             # Skip calculation, if we have severity rasters for all indices
-            if not missing_files:
+            if not missing_files or not OVERWRTIE_DATA:
                 print(f"All severity rasters for tile {utm_tileid} on {pf_string} already exists. Skipping calculation.\n")
                 continue
 
@@ -357,22 +362,22 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
             else:
                 print(f"No pre-fire match found for {postfire_date}")
 
-        return None
+    return None
 
 # %% Execute pararellized processing
 if __name__ == "__main__":
     print("Loading data...")
+
+    OVERWRTIE_DATA = False
     
     if platform.system() == "Windows":
         DATA_FOLDER = 'data/' # on local machine
         PROCESSED_HLS_DIR = "data/raster/hls/processed"
         OUT_FOLDER = './data/raster/hls/severity_rasters'
-        HLS_PARENT_PATH = os.path.dirname(PROCESSED_HLS_DIR)
     else:
-        DATA_FOLDER = '~/data/' # on sciencecluster
-        PROCESSED_HLS_DIR = "/home/nrietz/scratch/raster/hls/processed/" # Set original data paths
-        OUT_FOLDER = '/data/nrietz/raster/hls/severity_rasters'
-        HLS_PARENT_PATH = os.path.dirname(PROCESSED_HLS_DIR)
+        DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
+        PROCESSED_HLS_DIR ="/home/nrietz/scratch/raster/hls/processed" # Set original data paths
+        OUT_FOLDER = "/home/nrietz/scratch/raster/hls/severity_rasters"
     
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
     processing_lut = pd.read_csv(
@@ -413,4 +418,5 @@ if __name__ == "__main__":
                                                UTM_TILE_NAME,
                                                processing_lut,
                                                fire_polygons,
-                                               OUT_DIR = OUT_FOLDER) for UTM_TILE_NAME in UTM_TILE_LIST)
+                                               OUT_DIR = OUT_FOLDER,
+                                               OVERWRTIE_DATA = OVERWRTIE_DATA) for UTM_TILE_NAME in UTM_TILE_LIST)

@@ -37,22 +37,23 @@ def Spectral_optimality(xpre, ypre, xpost, ypost):
     ypost[np.isnan(ypost)] = NoData # Replacing nans with the no data value
     
     # Optimality equation
-    bperp = xpre + ypre
-    bperp = np.where(bperp==0.02,np.nan,bperp)
-
-    apost = ypost / xpost
-    apost = np.where(apost==1,np.nan,apost)
-
-    xideal = bperp / (apost + 1)
-
-    yideal = xideal * apost
-
-    dinsens = np.sqrt(((xpost-xideal)**2) + ((ypost-yideal)**2))
-
-    dsens = np.sqrt(((xpost-xpre)**2) + ((ypost-ypre)**2))
-
-    Opt = 1 - (dinsens/dsens)
-    Opt = np.where(Opt<0,0,Opt)   
+    with np.errstate(divide='ignore'):
+        bperp = xpre + ypre
+        bperp = np.where(bperp==0.02,np.nan,bperp)
+    
+        apost = ypost / xpost
+        apost = np.where(apost==1,np.nan,apost)
+    
+        xideal = bperp / (apost + 1)
+    
+        yideal = xideal * apost
+    
+        dinsens = np.sqrt(((xpost-xideal)**2) + ((ypost-yideal)**2))
+    
+        dsens = np.sqrt(((xpost-xpre)**2) + ((ypost-ypre)**2))
+    
+        Opt = 1 - (dinsens/dsens)
+        Opt = np.where(Opt<0,0,Opt)   
     
     # Get optimality
     return Opt

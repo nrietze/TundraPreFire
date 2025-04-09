@@ -10,12 +10,28 @@ set.seed(10)
 
 # 0. Set up functions ----
 # ========================.
-load_data <- function(fire_attrs,severity_index){
+load_data <- function(fire_attrs,severity_index,frac_int){
   # Fire perimeter attributes
   UTM_TILE_ID <- fire_attrs$opt_UTM_tile
   year <- fire_attrs$tst_year
   
   SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
+  
+  # Load filtered and formatted dataframe
+  fn_filtered_df <- paste0(TABLE_DIR,sprintf(
+    "sampled_data/%spct/%s_%s_merged_filtered_%sth_pctile.csv",
+    frac_int,FIRE_ID, year,pct_cutoff*100
+  ))
+  
+  if (!file.exists(fn_filtered_df)){
+    return(NULL)
+  }
+  
+  df_filtered <- read_csv2(fn_filtered_df, col_names = TRUE) %>% 
+    as_tibble() %>% 
+    mutate(date = as.Date(date),
+           burn_date = as.Date(burn_date),
+           doy = yday(date))
   
   # Load dNBR raster
   severity_raster_list <- list.files(path = paste0(HLS_DIR,"severity_rasters"),
@@ -40,7 +56,7 @@ load_data <- function(fire_attrs,severity_index){
   # Load sample points (with associated burn dates)
   fname_sample_points <-  paste0(
     DATA_DIR,
-    sprintf("feature_layers/%s_sample_points_burn_date.gpkg",FIRE_ID)
+    sprintf("feature_layers/%s_sample_points_%spct_burn_date.gpkg",FIRE_ID,frac_int)
   )
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(severity_raster)) %>% 
@@ -49,18 +65,6 @@ load_data <- function(fire_attrs,severity_index){
   # Extract data at random points 
   severity_raster_sample <- terra::extract(severity_raster, sample_points,
                                            ID = FALSE, xy = TRUE)
-  
-  # Load filtered and formatted dataframe
-  fn_filtered_df <- paste0(TABLE_DIR,sprintf(
-    "sampled_data/%s_%s_merged_filtered_%sth_pctile.csv",
-    FIRE_ID, year,pct_cutoff*100
-  ))
-  
-  df_filtered <- read_csv2(fn_filtered_df, col_names = cols()) %>% 
-    as_tibble() %>% 
-    mutate(date = as.Date(date),
-           burn_date = as.Date(burn_date),
-           doy = yday(date))
   
   return(list(df_filtered,
               severity_raster_sample,
@@ -163,6 +167,9 @@ severity_index <- "dNBR"
 pct_cutoff <- 0.5
 OVERWRITE_DATA <- FALSE
 
+frac_to_sample <- 0.01
+frac_int <- frac_to_sample *100
+
 # Load fire perimeters
 fire_perimeters <- vect(
   paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
@@ -183,8 +190,8 @@ if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 for (FIRE_ID in final_lut$fireid){
   cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
   
-  filename <- sprintf("model_dataframes/%s_%s_model_dataframe.csv",
-                      FIRE_ID,severity_index)
+  filename <- sprintf("model_dataframes/%spct/%s_%s_model_dataframe.csv",
+                      frac_int,FIRE_ID,severity_index)
   
   if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
   
@@ -192,7 +199,12 @@ for (FIRE_ID in final_lut$fireid){
     
     # Load all data
     cat("Loading data...\n")
-    data_list <- load_data(fire_attrs, severity_index)
+    data_list <- load_data(fire_attrs, severity_index,frac_int)
+    
+    if (is.null(data_list)){
+      cat("Sampled data table does not exist. Skipping this scar.\n")
+      next
+    }
     
     df_filtered <- data_list[[1]]
     severity_raster_sample <- data_list[[2]]
