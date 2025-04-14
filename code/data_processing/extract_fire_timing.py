@@ -67,6 +67,10 @@ def spatial_join_multiple_files(random_points: gpd.GeoDataFrame,
     
     # Drop 'joined' column
     final_result = final_result.drop(columns=['joined'], errors='ignore')
+
+    # rename and remove joined columns
+    final_result = final_result.drop(columns=[col for col in final_result.columns if "_left" in col])
+    final_result = final_result.rename(columns={col: col.replace("_right", "") for col in final_result.columns if col.endswith("_right")})
     
     return final_result
 
@@ -89,7 +93,7 @@ else:
     print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
 
 # Set proportion of sampled values per bin
-frac_to_sample = 0.01
+frac_to_sample = 0.99
 frac_int = int(frac_to_sample *100)
 
 gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers",f"*_sample_points_{frac_int}pct.gpkg"))
@@ -136,7 +140,7 @@ for path in gpkg_list:
 
     # Load a fire perimeter file for CRS info
     sample_perimeters = gpd.read_file(df_viirs_filtered.iloc[0,0])
-    
+
     # reproject random points to the sub-daily perimeter CRS
     random_points = random_points.to_crs(sample_perimeters.crs)
     
@@ -145,7 +149,7 @@ for path in gpkg_list:
         random_points,
         df_viirs_filtered,
         FIRE_ID)
-    
+
     # Create start DOY column
     random_points_sjoin['burn_date'] = pd.to_datetime(
         random_points_sjoin[['ted_year', 'ted_month', 'ted_day']].

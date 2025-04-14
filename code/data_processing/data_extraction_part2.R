@@ -121,7 +121,7 @@ OVERWRITE_DATA <- FALSE
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
-frac_to_sample <- 0.01
+frac_to_sample <- 0.99
 frac_int <- frac_to_sample *100
 
 OS <- Sys.info()[['sysname']]
@@ -145,7 +145,8 @@ top20_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
   slice_head(n = 20) 
 
-TEST_ID <- top20_fires$fireid
+# TEST_ID <- top20_fires$fireid
+TEST_ID <- c(14664,10792,17548) 
 
 if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
@@ -243,7 +244,7 @@ for(i in 1:nrow(final_lut)) {
   cat("Loading NDMI samples...\n")
   filename <- sprintf("NDMI_sampled_%s_%s.csv",FIRE_ID,year)
   
-  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+  df_ndmi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE,show_col_types = FALSE) %>% 
     as_tibble()
   df_ndmi <- df_ndmi %>% 
     mutate(Time = ymd_hms(Time))
@@ -252,7 +253,7 @@ for(i in 1:nrow(final_lut)) {
   cat("Loading NDVI samples...\n")
   filename <- sprintf("NDVI_sampled_%s_%s.csv",FIRE_ID,year)
   
-  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+  df_ndvi <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE,show_col_types = FALSE) %>% 
     as_tibble()
   df_ndvi <- df_ndvi %>% 
     mutate(Time = ymd_hms(Time))
@@ -327,7 +328,7 @@ for(i in 1:nrow(final_lut)) {
   } else {
     
     cat("Loading LST samples...\n")
-    df_lst <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE) %>% 
+    df_lst <- read_csv2(paste0(OUT_DIR,filename), col_names = TRUE,show_col_types = FALSE) %>% 
       as_tibble()
     
     # df_lst <- df_lst %>%

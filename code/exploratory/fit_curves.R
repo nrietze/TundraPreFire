@@ -27,7 +27,7 @@ load_data <- function(fire_attrs,severity_index,frac_int){
     return(NULL)
   }
   
-  df_filtered <- read_csv2(fn_filtered_df, col_names = TRUE) %>% 
+  df_filtered <- read_csv2(fn_filtered_df, col_names = TRUE,show_col_types = FALSE) %>% 
     as_tibble() %>% 
     mutate(date = as.Date(date),
            burn_date = as.Date(burn_date),
@@ -162,12 +162,11 @@ DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 HLS_DIR <- "~/scratch/raster/hls/"
 TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
-# TEST_ID <- c(14664,10792,17548)
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
 OVERWRITE_DATA <- FALSE
 
-frac_to_sample <- 0.01
+frac_to_sample <- 0.99
 frac_int <- frac_to_sample *100
 
 # Load fire perimeters
@@ -180,6 +179,7 @@ top20_fires <- fire_perimeters %>%
   slice_head(n = 20) 
 
 TEST_ID <- top20_fires$fireid
+TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
 
 # Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT

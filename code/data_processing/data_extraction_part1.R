@@ -145,11 +145,14 @@ index_name <- "NDMI"
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- FALSE
 
+# TRUE to create random point samples on dNBR maps
+SAMPLE_FROM_DNBR_RASTER <- FALSE
+
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
 # Set proportion of sampled values per bin
-frac_to_sample <- 0.01
+frac_to_sample <- 0.99
 frac_int <- frac_to_sample *100
 
 OS <- Sys.info()[['sysname']]
@@ -202,6 +205,8 @@ for(i in 1:nrow(final_lut)) {
     cat("No burn severity raster for this UTM tile exists.\n")
     next
   }
+  
+  # Find raster with highest coverage
   
   rast_burn_severity <- rast(severity_rasters[1])
   
@@ -316,7 +321,16 @@ for(i in 1:nrow(final_lut)) {
                             brackets=TRUE)
     
     # Create spatial point sample
-    sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
+    if (SAMPLE_FROM_DNBR_RASTER){
+      sample_points <- sample_dnbr_points(rast_binned, sample_pct = frac_to_sample)
+    } else {
+      # Weigh nr. of sampled points by area burned
+      n_points <- round(100 * fire_perimeter_buffered$farea)
+      
+      sample_points <- spatSample(fire_perimeter_buffered,
+                                  size = n_points,
+                                  method = "random")
+    }
     
     if (is_above_arctic){
       # Extract Descals et al. (2022) burn class to point

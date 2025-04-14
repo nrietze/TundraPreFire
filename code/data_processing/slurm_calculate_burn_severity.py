@@ -288,7 +288,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
             )]
 
             # Skip calculation, if we have severity rasters for all indices
-            if not missing_files or not OVERWRTIE_DATA:
+            if not missing_files and not OVERWRTIE_DATA:
                 print(f"All severity rasters for tile {utm_tileid} on {pf_string} already exists. Skipping calculation.\n")
                 continue
 
@@ -368,7 +368,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
 if __name__ == "__main__":
     print("Loading data...")
 
-    OVERWRTIE_DATA = False
+    OVERWRTIE_DATA = True
     
     if platform.system() == "Windows":
         DATA_FOLDER = 'data/' # on local machine
