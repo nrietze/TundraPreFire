@@ -36,10 +36,10 @@ load_data <- function(fire_attrs,severity_index,frac_int){
   # Load optimal burn severity raster
   fname_optimal_severity_raster <- optimality_lut %>% 
     filter(fireid == FIRE_ID,
-           severity_index == burn_severity_index) %>% 
+           severity_index == severity_index) %>% 
     pull(fname_severity_raster)
   
-  rast_burn_severity <- rast(fname_optimal_severity_raster)  * SCALE_FACTOR
+  severity_raster <- rast(fname_optimal_severity_raster)  * SCALE_FACTOR
   
   # Subset to single perimeter
   selected_fire_perimeter <- fire_perimeters %>% 

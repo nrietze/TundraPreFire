@@ -93,7 +93,7 @@ else:
     print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
 
 # Set proportion of sampled values per bin
-frac_to_sample = 0.99
+frac_to_sample = 0.01
 frac_int = int(frac_to_sample *100)
 
 gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers",f"*_sample_points_{frac_int}pct.gpkg"))

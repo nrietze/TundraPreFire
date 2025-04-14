@@ -136,6 +136,9 @@ dir.create(OUT_DIR, showWarnings = FALSE)
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) 
 
+optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
+                            show_col_types = FALSE)
+
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"

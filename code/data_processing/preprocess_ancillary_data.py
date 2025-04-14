@@ -22,6 +22,7 @@ def find_optimal_utm_tile(mgrs_tile_centroids: gpd.GeoDataFrame,
     Returns:
         str: Name of the optimal UTM tile for that fire polygon.
     """
+    
     # get fire polygon's centroid
     fire_centroid = fire_polygon.geometry.centroid
     
@@ -29,8 +30,8 @@ def find_optimal_utm_tile(mgrs_tile_centroids: gpd.GeoDataFrame,
     sindex = mgrs_tile_centroids.geometry.sindex.nearest(fire_centroid)
     
     # select that nearest tile
-    nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:] 
-
+    nearest_mgrs_tile_centroid = mgrs_tile_centroids.iloc[sindex[1],:]
+    
     # reportt the tilename
     return nearest_mgrs_tile_centroid.Name.item()
 
@@ -39,14 +40,14 @@ if platform.system() == "Windows":
 else:
     DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
 
-OVERWRITE_DATA = False
+OVERWRITE_DATA = True
 
-# Load MGRS tile centroids to find msot suitable HLS tile
+# Load MGRS tile centroids to find msot suitable HLS tile & reproject to EPSG:3413 (ArcticDEM)
 mgrs_tile_centroids = gpd.read_file(os.path.join(DATA_FOLDER,
-                                                 "feature_layers/MGRS_centroids.geojson"))
-# CAVM outline
+                                                 "feature_layers/MGRS_centroids.geojson")).to_crs("EPSG:3413")
+# CAVM outline & reproject to EPSG:3413 (ArcticDEM)
 cavm_outline = gpd.read_file(os.path.join(DATA_FOLDER,
-                                          "feature_layers/cavm_outline.gpkg"))
+                                          "feature_layers/cavm_outline.gpkg")).to_crs("EPSG:3413")
 
 # %% 2. Extract all VIIRS fire events in CAVM and east of 113° E
 fpath_perims_in_cavm = os.path.join(DATA_FOLDER,
@@ -65,7 +66,7 @@ for gpkg_file in gpkg_files[4:]:
 
 # concat to one dataframe
 merged_fire_perimeters = gpd.GeoDataFrame(pd.concat(fire_perimeters,
-                                                    ignore_index=True))
+                                                    ignore_index=True)).to_crs("EPSG:3413")
 
 # add UniqueID column (some FireIDs are duplicates despite large distances)
 merged_fire_perimeters["UniqueID"] = range(len(merged_fire_perimeters))
@@ -84,21 +85,21 @@ fire_centroids = fire_centroids.to_crs(cavm_outline.crs)
 centroids_in_cavm = gpd.overlay(fire_centroids,cavm_outline,
                                 how='intersection')
 
-# select perimeters in CAVM zone
+# select perimeters in CAVM zone & reproject to EPSG:3413 (ArcticDEM)
 fire_perims_in_cavm = fires_east[fires_east['UniqueID'].
-                                isin(centroids_in_cavm.UniqueID.values)]
+                                isin(centroids_in_cavm.UniqueID.values)].to_crs("EPSG:3413")
 
 
 # Assign optimal UTM tile name to the fire perimeter
-fire_perims_in_cavm["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
+fire_perims_in_cavm.loc["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
     find_optimal_utm_tile(mgrs_tile_centroids, row), axis=1)
 
 # Reset index
 fire_perims_in_cavm = fire_perims_in_cavm.reset_index(drop=True)
 
 if not os.path.exists(fpath_perims_in_cavm) or OVERWRITE_DATA:
-    fire_perims_in_cavm.to_file(fpath_perims_in_cavm, driver='GPKG', layer='name')  
-    
+    fire_perims_in_cavm.drop(columns=["centroid"]).to_file(fpath_perims_in_cavm, driver='GPKG', layer='name')
+
 # Create final format of look-up-table
 final_lut = fire_perims_in_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim',
                                                 'duration','lcc_final', 'geometry',
@@ -130,14 +131,17 @@ for row in tqdm(fire_perims_in_cavm.iterrows(), total = len(fire_perims_in_cavm)
 
     # Calculate fire perimeter centroid
     fire_centroid = vect.geometry.centroid
-    
+
     # Find nearest Descals tile centroid to fire perimeter (in EPSG:4326)
     sindex = descals_tile_centroids.geometry.sindex.nearest(fire_centroid)
-    
+
      # select that nearest tile
     nearest_descals_tile_centroid = descals_tile_centroids.iloc[sindex[1,:]]
-    
+
     final_lut.loc[final_lut.fireid == vect.fireid, 'descals_file'] = os.path.basename(nearest_descals_tile_centroid.filename.item())
-    
+
 # Export dataframe as csv
-final_lut.to_csv(os.path.join(DATA_FOLDER,"tables/processing_LUT_really.csv"))   
+fpath_final_lut = os.path.join(DATA_FOLDER,"tables/processing_LUT.csv")
+
+if not os.path.exists(fpath_final_lut) or OVERWRITE_DATA:
+    final_lut.to_csv(fpath_final_lut)
