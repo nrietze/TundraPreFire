@@ -47,112 +47,24 @@ sample_dnbr_points <- function(raster, sample_pct = 0.10) {
   return(sample_points)
 }
 
-assign_rast_time <- function(lyr) {
-  # Extract the layer's timestamp
-  timestamp <- sub(
-    ".*\\.(\\d{7}T\\d{6}).*\\.tif$", "\\1",
-    basename(sources(lyr))
-  )
-  
-  # Convert string to datetime
-  datetime <- as.POSIXct(timestamp, format = "%Y%jT%H%M%S", tz = "UTC")
-  
-  # Assign time to raster layer
-  terra::time(lyr, "seconds") <- datetime
-  # names(lyr) <- datetime
-  
-  return(lyr)
-}
-
-stack_time_series <- function(hls_dir,utm_tile_id, index_name){
-  # List spectral_index COGs
-  spectral_index_files_s30 <- list.files(hls_dir,
-                                         pattern = sprintf("HLS.S30.T%s.*%s\\.tif$",
-                                                           utm_tile_id,index_name))
-  spectral_index_files_l30 <- list.files(hls_dir,
-                                         pattern = sprintf("HLS.L30.T%s.*%s\\.tif$",
-                                                           utm_tile_id,index_name))
-  
-  cat("Loading rasters...\n")
-  
-  # Load rasters to list
-  spectral_index_s30_list <- lapply(paste0(hls_dir, spectral_index_files_s30),rast)
-  spectral_index_l30_list <- lapply(paste0(hls_dir, spectral_index_files_l30),rast)
-  
-  cat("Creating image stacks...\n")
-  
-  # Concatenate as single raster and assign time dimension
-  spectral_index_s30 <- rast(spectral_index_s30_list)
-  spectral_index_s30 <- sapp(spectral_index_s30, assign_rast_time)
-  
-  spectral_index_l30 <- rast(spectral_index_l30_list)
-  spectral_index_l30 <- sapp(spectral_index_l30, assign_rast_time)
-  
-  # Merge S30 and L30 stack
-  spectral_index <- c(spectral_index_s30, spectral_index_l30)
-  
-  # Shift NDMI by 1
-  if (index_name == "NDMI"){
-    spectral_index <- spectral_index + 1
-  }
-  
-  cat("done.")
-  return(spectral_index)
-}
-
-get_ls_datetime <- function(raster){
-  datenum <- global(raster,"max",na.rm=T)
-  date <- as.Date(as.numeric(datenum), origin = "1970-01-01")
-  return(date)
-}
-
-read_hls_data_frames <- function(index_name, UTM_TILE_ID,year,
-                                 sample_points, dnbr_sample){
-  filename <- sprintf("%s_sampled_%s_%s.csv",index_name,UTM_TILE_ID,year)
-  
-  df <- read.csv2(paste0(TABLE_DIR,filename)) %>% 
-    select(-1) %>% 
-    mutate(burn_severity = dnbr_sample$burn_severity) %>% 
-    as_tibble() %>% 
-    mutate(burn_date = sample_points$burn_date,
-           descals_burn_class = sample_points$descals_burned)
-  
-  if (index_name == "LST"){
-    fmt = "X%Y.%m.%d"
-  } else{
-    fmt = "X%Y.%m.%d.%H.%M.%S"
-  }
-  
-  df_long <- df %>%
-    mutate(ObservationID = 1:nrow(df)) %>%  # Add a column for observation IDs (row numbers)
-    gather(key = "Time", value = index_name, 
-           -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
-    mutate(Time = as.POSIXct(Time, format = fmt)) 
-  
-  return(df_long)
-}
-
 
 # 1. Loading and preparing data: ----
 # ===================================.
 
 # Set name of severity index to extract data for
-severity_index <- "dNBR"
-
-# Set name of spectral index to extract data for
-index_name <- "NDMI"
+burn_severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 # TRUE to create random point samples on dNBR maps
-SAMPLE_FROM_DNBR_RASTER <- FALSE
+SAMPLE_FROM_DNBR_RASTER <- TRUE
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
 # Set proportion of sampled values per bin
-frac_to_sample <- 0.99
+frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
 
 OS <- Sys.info()[['sysname']]
@@ -177,6 +89,9 @@ TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) 
 
+optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
+                            show_col_types = FALSE)
+
 if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
@@ -195,22 +110,14 @@ for(i in 1:nrow(final_lut)) {
   
   print(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
   
-  # Load burn severity rasters
-  severity_rasters <- list.files(path = "~/scratch/raster/hls/severity_rasters",
-                                 pattern = sprintf("^%s_%s_%s.*\\.tif$",
-                                                   severity_index,UTM_TILE_ID,year),
-                                 full.names = TRUE
-                                 )
-  if (length(severity_rasters) == 0){
-    cat("No burn severity raster for this UTM tile exists.\n")
-    next
-  }
+  # Load optimal burn severity raster
+  fname_optimal_severity_raster <- optimality_lut %>% 
+    filter(fireid == FIRE_ID,
+           severity_index == burn_severity_index) %>% 
+    pull(fname_severity_raster)
+  rast_burn_severity <- rast(fname_optimal_severity_raster)
   
-  # Find raster with highest coverage
-  
-  rast_burn_severity <- rast(severity_rasters[1])
-  
-  # get fire perimter
+  # get fire perimeter
   selected_fire_perimeter <- fire_perimeters %>% 
     filter(fireid  == FIRE_ID) %>%
     project(crs(rast_burn_severity))

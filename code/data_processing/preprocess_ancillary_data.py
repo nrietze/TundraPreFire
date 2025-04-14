@@ -37,11 +37,9 @@ def find_optimal_utm_tile(mgrs_tile_centroids: gpd.GeoDataFrame,
 if platform.system() == "Windows":
     DATA_FOLDER = 'data/' # on local machine
 else:
-    DATA_FOLDER = '~/data/' # on sciencecluster
+    DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
 
-# Load features (fire perimeters and ROIs)
-fire_perimeters_2020 = gpd.read_file(os.path.join(DATA_FOLDER,
-                                                  "feature_layers/fire_atlas/final_viirs2020.gpkg"))
+OVERWRITE_DATA = False
 
 # Load MGRS tile centroids to find msot suitable HLS tile
 mgrs_tile_centroids = gpd.read_file(os.path.join(DATA_FOLDER,
@@ -51,8 +49,8 @@ cavm_outline = gpd.read_file(os.path.join(DATA_FOLDER,
                                           "feature_layers/cavm_outline.gpkg"))
 
 # %% 2. Extract all VIIRS fire events in CAVM and east of 113° E
-fname_perims_in_cavm = os.path.join(DATA_FOLDER,
-                                    "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
+fpath_perims_in_cavm = os.path.join(DATA_FOLDER,
+                                    "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113_test.gpkg")
 
 # List all final VIIRS perimeters
 gpkg_files = glob(os.path.join(DATA_FOLDER,
@@ -79,13 +77,12 @@ fires_east['centroid'] = fires_east.geometry.centroid
 
 # Extract centroids for intersection (faster and avoids holes in polygon intersections)
 fire_centroids = gpd.GeoDataFrame(fires_east[['UniqueID', 'centroid']],
-                                    geometry='centroid')
+                                  geometry='centroid')
 fire_centroids = fire_centroids.to_crs(cavm_outline.crs)
 
 # perform spatial intersect of centroids with CAVM
-centroids_in_cavm = gpd.overlay(fire_centroids, 
-                                    cavm_outline, 
-                                    how='intersection')
+centroids_in_cavm = gpd.overlay(fire_centroids,cavm_outline,
+                                how='intersection')
 
 # select perimeters in CAVM zone
 fire_perims_in_cavm = fires_east[fires_east['UniqueID'].
@@ -98,11 +95,14 @@ fire_perims_in_cavm["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
 
 # Reset index
 fire_perims_in_cavm = fire_perims_in_cavm.reset_index(drop=True)
+
+if not os.path.exists(fpath_perims_in_cavm) or OVERWRITE_DATA:
+    fire_perims_in_cavm.to_file(fpath_perims_in_cavm, driver='GPKG', layer='name')  
     
 # Create final format of look-up-table
-final_lut = fire_perims_in_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim', 
-                                             'duration','lcc_final', 'geometry',
-                                             'centroid'])
+final_lut = fire_perims_in_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim',
+                                                'duration','lcc_final', 'geometry',
+                                                'centroid'])
 final_lut[["descals_file"]] = "n"
 
 # %% 2. Add Descals burned area tiles to final look-up-table

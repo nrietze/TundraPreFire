@@ -119,7 +119,8 @@ if __name__ == "__main__":
     fire_polygons = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
     
     # Only process HLS data for fires starting in 2017
-    fire_polygons = fire_polygons.loc[fire_polygons.tst_year>=2017]
+    TEST_ID = [14211,14664,10792,17548]
+    fire_polygons = fire_polygons.loc[(fire_polygons.tst_year>=2017) & (np.isin(fire_polygons.fireid,TEST_ID))]
     
     # Create output tables
     output_lut = pd.DataFrame(columns=[
@@ -194,7 +195,7 @@ if __name__ == "__main__":
             norm_pct = (df_temp["pct_clear_pixel"] - df_temp["pct_clear_pixel"].min()) / (df_temp["pct_clear_pixel"].max() - df_temp["pct_clear_pixel"].min())
 
             # Get index of best pair with wieghted average
-            score = 0.5 * norm_opt + 0.5 * norm_pct
+            score = 0.2 * norm_opt + 0.8 * norm_pct
             
             if all(np.isnan(score)):
                 continue

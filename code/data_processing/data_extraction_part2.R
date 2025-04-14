@@ -114,14 +114,14 @@ get_ls_datetime <- function(raster){
 severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 # TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
 
-frac_to_sample <- 0.99
+frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
 
 OS <- Sys.info()[['sysname']]
@@ -187,7 +187,14 @@ for(i in 1:nrow(final_lut)) {
     next
   }
   
-  rast_burn_severity <- rast(severity_rasters[1])
+  # Load optimal burn severity raster
+  fname_optimal_severity_raster <- optimality_lut %>% 
+    filter(fireid == FIRE_ID,
+           severity_index == severity_index) %>% 
+    pull(fname_severity_raster)
+  
+  SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
+  rast_burn_severity <- rast(fname_optimal_severity_raster)  * SCALE_FACTOR
   
   # Load sample points with burn dates
   fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct_burn_date.gpkg",

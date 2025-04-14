@@ -33,13 +33,13 @@ load_data <- function(fire_attrs,severity_index,frac_int){
            burn_date = as.Date(burn_date),
            doy = yday(date))
   
-  # Load dNBR raster
-  severity_raster_list <- list.files(path = paste0(HLS_DIR,"severity_rasters"),
-                                     pattern = sprintf("^%s_%s_%s.*\\.tif$",
-                                                       severity_index,UTM_TILE_ID,year),
-                                     full.names = TRUE)
+  # Load optimal burn severity raster
+  fname_optimal_severity_raster <- optimality_lut %>% 
+    filter(fireid == FIRE_ID,
+           severity_index == burn_severity_index) %>% 
+    pull(fname_severity_raster)
   
-  severity_raster <- rast(severity_raster_list[1]) * SCALE_FACTOR
+  rast_burn_severity <- rast(fname_optimal_severity_raster)  * SCALE_FACTOR
   
   # Subset to single perimeter
   selected_fire_perimeter <- fire_perimeters %>% 
@@ -164,9 +164,9 @@ TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
-frac_to_sample <- 0.99
+frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
 
 # Load fire perimeters
