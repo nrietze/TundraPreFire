@@ -122,15 +122,16 @@ if __name__ == "__main__":
     fire_polygons = fire_polygons.loc[fire_polygons.tst_year>=2017]
     
     # Create output tables
-    output_lut = pd.DataFrame(fire_polygons)
-    output_table = pd.DataFrame(columns=[
+    output_lut = pd.DataFrame(columns=[
         "fireid",
-        "filename_severity_raster",
+        "fname_severity_raster",
+        "fname_optimality_raster",
         "date_severity_raster",
         "pct_clear_pixel",
         "mean_optimality",
-        "median_optimality"
+        "severity_index"
     ])
+    output_table = output_lut.copy()
     
     for i in fire_polygons.index:
         perimeter = fire_polygons.loc[[i]]
@@ -156,7 +157,7 @@ if __name__ == "__main__":
             
             df_sev = pd.DataFrame({
                 "fname_severity_raster":burn_severity_files,
-                "date":severity_dates
+                "date_severity_raster":severity_dates
             })
             
             # and optimality rasters
@@ -167,11 +168,12 @@ if __name__ == "__main__":
             
             df_opt = pd.DataFrame({
                 "fname_optimality_raster":optimality_files,
-                "date":optimality_dates
+                "date_severity_raster":optimality_dates
             })
             
-            df_temp = pd.merge(df_sev,df_opt, on="date")
+            df_temp = pd.merge(df_sev,df_opt, on="date_severity_raster")
             df_temp["fireid"] = FIREID
+            df_temp["severity_index"] = severity_index
             
             if not burn_severity_files:
                 print(f"No {severity_index} rasters found for fire {FIREID}.")
@@ -196,16 +198,19 @@ if __name__ == "__main__":
             
             if all(np.isnan(score)):
                 continue
-            
             best_idx = np.argmax(score)
             
-            # Write to ouput tables
-            output_lut.loc[output_lut["fireid"] == FIREID, "pct_clear_pixel"] = df_temp['pct_clear_pixel'][best_idx]
-            output_lut.loc[output_lut["fireid"] == FIREID, "mean_optimality"] = df_temp['mean_optimality'][best_idx]
-            output_lut.loc[output_lut["fireid"] == FIREID, "severity_raster_filename"] = df_temp['fname_severity_raster'][best_idx]
-            output_lut.loc[output_lut["fireid"] == FIREID, "date_severity_raster"] = df_temp['date'][best_idx]
+            df_best = df_temp.iloc[best_idx,:].to_frame().T 
+            output_lut = pd.concat([df_best,output_lut])
+            
+            # output_lut.loc[output_lut["fireid"] == FIREID, "severity_index"] = severity_index
+            # output_lut.loc[output_lut["fireid"] == FIREID, "pct_clear_pixel"] = df_temp['pct_clear_pixel'][best_idx]
+            # output_lut.loc[output_lut["fireid"] == FIREID, "mean_optimality"] = df_temp['mean_optimality'][best_idx]
+            # output_lut.loc[output_lut["fireid"] == FIREID, "severity_raster_filename"] = df_temp['fname_severity_raster'][best_idx]
+            # output_lut.loc[output_lut["fireid"] == FIREID, "date_severity_raster"] = df_temp['date'][best_idx]
             
             output_table = pd.concat([df_temp,output_table])
     
+    # Write to ouput tables
     output_lut.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_LUT.csv"),sep=";")        
     output_table.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_overview_table.csv"),sep=";")        
