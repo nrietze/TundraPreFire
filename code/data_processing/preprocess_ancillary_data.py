@@ -40,7 +40,7 @@ if platform.system() == "Windows":
 else:
     DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
 
-OVERWRITE_DATA = True
+OVERWRITE_DATA = False
 
 # Load MGRS tile centroids to find msot suitable HLS tile & reproject to EPSG:3413 (ArcticDEM)
 mgrs_tile_centroids = gpd.read_file(os.path.join(DATA_FOLDER,
@@ -66,7 +66,7 @@ for gpkg_file in gpkg_files[4:]:
 
 # concat to one dataframe
 merged_fire_perimeters = gpd.GeoDataFrame(pd.concat(fire_perimeters,
-                                                    ignore_index=True)).to_crs("EPSG:3413")
+                                                    ignore_index=True))
 
 # add UniqueID column (some FireIDs are duplicates despite large distances)
 merged_fire_perimeters["UniqueID"] = range(len(merged_fire_perimeters))
@@ -78,8 +78,8 @@ fires_east['centroid'] = fires_east.geometry.centroid
 
 # Extract centroids for intersection (faster and avoids holes in polygon intersections)
 fire_centroids = gpd.GeoDataFrame(fires_east[['UniqueID', 'centroid']],
-                                  geometry='centroid')
-fire_centroids = fire_centroids.to_crs(cavm_outline.crs)
+                                  geometry='centroid', crs="EPSG:4326")
+fire_centroids = fire_centroids.to_crs("EPSG:3413")
 
 # perform spatial intersect of centroids with CAVM
 centroids_in_cavm = gpd.overlay(fire_centroids,cavm_outline,
