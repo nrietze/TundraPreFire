@@ -154,25 +154,28 @@ if __name__ == "__main__":
             burn_severity_files = glob(
                 os.path.join(HLS_FOLDER,"severity_rasters",f"{severity_index}_{UTM_TILE_NAME}*.tif")
                 )
-            severity_dates = [os.path.basename(f).split('.')[0][-10:] for f in burn_severity_files]
+            severity_datestrings = [os.path.basename(f).split('.')[0][-10:] for f in burn_severity_files]
+            severity_dates = [datetime.datetime.strptime(s,"%Y-%m-%d") for s in severity_datestrings]
             
             df_sev = pd.DataFrame({
                 "fname_severity_raster":burn_severity_files,
-                "date_severity_raster":severity_dates
+                "datestring_raster":severity_datestrings,
+                "date_raster":severity_dates
             })
+            df_sev["doy"] = df_sev.date_raster.dt.day_of_year
             
             # and optimality rasters
             optimality_files = glob(
                 os.path.join(HLS_FOLDER,"optimality_rasters",f"*{UTM_TILE_NAME}*.tif")
                 )
-            optimality_dates = [os.path.basename(f).split('.')[0][-10:] for f in optimality_files]
+            optimality_datestrings = [os.path.basename(f).split('.')[0][-10:] for f in optimality_files]
             
             df_opt = pd.DataFrame({
                 "fname_optimality_raster":optimality_files,
-                "date_severity_raster":optimality_dates
+                "datestring_raster":optimality_datestrings
             })
             
-            df_temp = pd.merge(df_sev,df_opt, on="date_severity_raster")
+            df_temp = pd.merge(df_sev,df_opt, on="datestring_raster")
             df_temp["fireid"] = FIREID
             df_temp["severity_index"] = severity_index
             
@@ -193,22 +196,17 @@ if __name__ == "__main__":
             # Find optimal pair of optimality & clear pixel percentage (normalizing both to range [0, 1])
             norm_opt = (df_temp["mean_optimality"] - df_temp["mean_optimality"].min()) / (df_temp["mean_optimality"].max() - df_temp["mean_optimality"].min())
             norm_pct = (df_temp["pct_clear_pixel"] - df_temp["pct_clear_pixel"].min()) / (df_temp["pct_clear_pixel"].max() - df_temp["pct_clear_pixel"].min())
+            norm_doy = (df_temp["doy"] - df_temp["doy"].min()) / (df_temp["doy"].max() - df_temp["doy"].min())
 
             # Get index of best pair with wieghted average
-            score = 0.2 * norm_opt + 0.8 * norm_pct
+            score = 1/3 * norm_opt + 1/3 * norm_pct + 1/3 * norm_doy
             
             if all(np.isnan(score)):
                 continue
             best_idx = np.argmax(score)
             
-            df_best = df_temp.iloc[best_idx,:].to_frame().T 
+            df_best = df_temp.iloc[best_idx,:].to_frame().T
             output_lut = pd.concat([df_best,output_lut])
-            
-            # output_lut.loc[output_lut["fireid"] == FIREID, "severity_index"] = severity_index
-            # output_lut.loc[output_lut["fireid"] == FIREID, "pct_clear_pixel"] = df_temp['pct_clear_pixel'][best_idx]
-            # output_lut.loc[output_lut["fireid"] == FIREID, "mean_optimality"] = df_temp['mean_optimality'][best_idx]
-            # output_lut.loc[output_lut["fireid"] == FIREID, "severity_raster_filename"] = df_temp['fname_severity_raster'][best_idx]
-            # output_lut.loc[output_lut["fireid"] == FIREID, "date_severity_raster"] = df_temp['date'][best_idx]
             
             output_table = pd.concat([df_temp,output_table])
     

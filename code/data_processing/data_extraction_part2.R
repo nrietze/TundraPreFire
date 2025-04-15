@@ -14,40 +14,6 @@ set.seed(10)
 
 # 0. Configure functions ----
 # ===========================.
-
-sample_dnbr_points <- function(raster, sample_pct = 0.10) {
-  # Frequency table for raster bins
-  freq_table <- freq(raster, digits = 0)
-  
-  # Calculate the number of points per bin
-  sample_size_per_bin <- ceiling(sample_pct * freq_table[, "count"])
-  
-  # Initialize empty SpatVector for sampled points
-  sample_points <- vect()
-  
-  # Efficient sampling using vectorized approach
-  for (i in seq_len(nrow(freq_table))) {
-    category_value <- freq_table[i, "value"]
-    
-    # Skip if no points to sample
-    if (sample_size_per_bin[i] == 0) next
-    
-    # Mask for the current category
-    category_mask <- raster == category_value
-    
-    # Sample random points
-    points <- spatSample(category_mask, size = sample_size_per_bin[i],
-                         method = "random", na.rm = TRUE, as.points = TRUE)
-    
-    # Append sampled points if valid
-    if (!is.null(points)) {
-      sample_points <- rbind(sample_points, points)
-    }
-  }
-  
-  return(sample_points)
-}
-
 assign_rast_time <- function(lyr) {
   # Extract the layer's timestamp
   timestamp <- sub(
@@ -109,9 +75,6 @@ get_ls_datetime <- function(raster){
 
 # 1. Loading and preparing data: ----
 # ===================================.
-
-# Set name of severity index to extract data for
-severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
 OVERWRITE_DATA <- TRUE
@@ -191,24 +154,34 @@ for(i in 1:nrow(final_lut)) {
   }
   
   # Load optimal burn severity raster
-  fname_optimal_severity_raster <- optimality_lut %>% 
-    filter(fireid == FIRE_ID,
-           severity_index == severity_index) %>% 
+  fname_optimal_dnbr_raster <- optimality_lut %>% 
+    filter(fireid == FIRE_ID,severity_index == 'dNBR') %>% 
     pull(fname_severity_raster)
   
-  SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
-  rast_burn_severity <- rast(fname_optimal_severity_raster)  * SCALE_FACTOR
+  rdnbr_path <- gsub("dNBR", "RdNBR", fname_optimal_dnbr_raster)
+  rbr_path <- gsub("dNBR", "RBR", fname_optimal_dnbr_raster)
+  
+  fname_optimal_dgemi_raster <- optimality_lut %>% 
+    filter(fireid == FIRE_ID,severity_index == 'dGEMI') %>% 
+    pull(fname_severity_raster)
+    
+  rast_dnbr <- rast(fname_optimal_dnbr_raster)
+  rast_rdnbr <- rast(rdnbr_path)
+  rast_rbr <- rast(rbr_path)
+  rast_dgemi <- rast(fname_optimal_dgemi_raster)
   
   # Load sample points with burn dates
   fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct_burn_date.gpkg",
                                  FIRE_ID,frac_to_sample*100)
   sample_points <- vect(fname_sample_points) %>% 
-    project(crs(rast_burn_severity)) %>% 
+    project(crs(rast_dnbr)) %>% 
     mutate(ObservationID = 1:nrow(.))
   
   # Extract dNBR at random points 
-  dnbr_sample <- terra::extract(rast_burn_severity, sample_points,
-                                ID = FALSE, xy = TRUE)
+  dnbr_sample <- terra::extract(rast_dnbr, sample_points,ID = FALSE, xy = TRUE)
+  rdnbr_sample <- terra::extract(rast_rdnbr, sample_points,ID = FALSE, xy = TRUE)
+  rbr_sample <- terra::extract(rast_rbr, sample_points,ID = FALSE, xy = TRUE)
+  dgemi_sample <- terra::extract(rast_dgemi, sample_points,ID = FALSE, xy = TRUE)
   
   ## a. HLS spectral indices ----
   
@@ -235,12 +208,15 @@ for(i in 1:nrow(final_lut)) {
       
       df_long <- df_spectral_index %>% 
         mutate(ObservationID = 1:nrow(.),
-               burn_severity = dnbr_sample[,1],
+               dnbr = dnbr_sample[,1],
+               rdnbr = rdnbr_sample[,1],
+               rbr = rbr_sample[,1],
+               dgemi = dgemi_sample[,1],
                burn_date = sample_points$burn_date,
                descals_burn_class = sample_points$descals_burned,
                .before = 1) %>% 
         gather(key = "Time", value = !!sym(index_name), 
-               -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
+               -c(ObservationID,dnbr,rdnbr,rbr,dgemi,burn_date,descals_burn_class)) %>% 
         mutate(Time = ymd_hms(Time))
       
       # Export as table
