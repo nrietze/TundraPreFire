@@ -77,7 +77,7 @@ get_ls_datetime <- function(raster){
 # ===================================.
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
 # TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
 

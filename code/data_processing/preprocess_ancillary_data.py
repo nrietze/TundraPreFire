@@ -51,7 +51,7 @@ cavm_outline = gpd.read_file(os.path.join(DATA_FOLDER,
 
 # %% 2. Extract all VIIRS fire events in CAVM and east of 113° E
 fpath_perims_in_cavm = os.path.join(DATA_FOLDER,
-                                    "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113_test.gpkg")
+                                    "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 
 # List all final VIIRS perimeters
 gpkg_files = glob(os.path.join(DATA_FOLDER,

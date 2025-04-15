@@ -82,8 +82,6 @@ top20_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
   slice_head(n = 20) 
 
-TEST_ID <- top20_fires$fireid
-# TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
@@ -92,7 +90,8 @@ final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
 optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
                             show_col_types = FALSE)
 
-if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
+# TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
+# if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 

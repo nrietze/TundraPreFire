@@ -138,8 +138,8 @@ if __name__ == "__main__":
     ])
     output_table = output_lut.copy()
     
-    for i in fire_polygons.index:
-        perimeter = fire_polygons.loc[[i]]
+    for i,_ in enumerate(fire_polygons):
+        perimeter = fire_polygons.iloc[[i]]
         
         # Set Time
         YEAR_START = perimeter.tst_year.item()
@@ -150,6 +150,10 @@ if __name__ == "__main__":
         # Get attributes of this perimeter
         FIREID = perimeter.fireid.item()
         fire_perimeter_attrs = processing_lut.loc[processing_lut.fireid == FIREID]
+        
+        if len(fire_perimeter_attrs)==0:
+            continue
+        
         UTM_TILE_NAME = fire_perimeter_attrs.opt_UTM_tile.item()
 
         for severity_index in ["dNBR","dGEMI"]:
