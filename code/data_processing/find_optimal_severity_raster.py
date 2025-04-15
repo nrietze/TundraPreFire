@@ -119,8 +119,12 @@ if __name__ == "__main__":
     fire_polygons = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
     
     # Only process HLS data for fires starting in 2017
-    TEST_ID = [14211,14664,10792,17548]
-    fire_polygons = fire_polygons.loc[(fire_polygons.tst_year>=2017) & (np.isin(fire_polygons.fireid,TEST_ID))]
+    # TEST_ID = [14211,14664,10792,17548]
+    TEST_ID = []
+    if TEST_ID:
+        fire_polygons = fire_polygons.loc[np.isin(fire_polygons.fireid,TEST_ID)]
+    
+    fire_polygons = fire_polygons.loc[fire_polygons.tst_year>=2017]
     
     # Create output tables
     output_lut = pd.DataFrame(columns=[
@@ -149,11 +153,19 @@ if __name__ == "__main__":
         UTM_TILE_NAME = fire_perimeter_attrs.opt_UTM_tile.item()
 
         for severity_index in ["dNBR","dGEMI"]:
+
+            print(f"Searching optimal {severity_index} raster for fire {FIREID}.")
             
             # Get list of severity rasters for this fire perimeter
             burn_severity_files = glob(
                 os.path.join(HLS_FOLDER,"severity_rasters",f"{severity_index}_{UTM_TILE_NAME}*.tif")
                 )
+
+            # skip perimeters where no rasters exist yet
+            if not burn_severity_files:
+                print(f"No burn severity rasters exist for UTM tile {UTM_TILE_NAME}.")
+                continue
+            
             severity_datestrings = [os.path.basename(f).split('.')[0][-10:] for f in burn_severity_files]
             severity_dates = [datetime.datetime.strptime(s,"%Y-%m-%d") for s in severity_datestrings]
             
@@ -162,6 +174,7 @@ if __name__ == "__main__":
                 "datestring_raster":severity_datestrings,
                 "date_raster":severity_dates
             })
+
             df_sev["doy"] = df_sev.date_raster.dt.day_of_year
             
             # and optimality rasters
@@ -182,8 +195,6 @@ if __name__ == "__main__":
             if not burn_severity_files:
                 print(f"No {severity_index} rasters found for fire {FIREID}.")
                 continue
-            
-            print(f"Searching optimal {severity_index} raster for fire {FIREID}.")
             
             # da_burn_severity = ConcatRasters(burn_severity_files, severity_index)
             

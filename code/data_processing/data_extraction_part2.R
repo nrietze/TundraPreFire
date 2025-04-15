@@ -142,17 +142,6 @@ for(i in 1:nrow(final_lut)) {
   cat(sprintf("Extracting data for fire %s in UTM tile: %s \n",
               FIRE_ID,UTM_TILE_ID))
   
-  # Load burn severity rasters
-  severity_rasters <- list.files(path = "~/scratch/raster/hls/severity_rasters",
-                                 pattern = sprintf("^%s_%s_%s.*\\.tif$",
-                                                   severity_index,UTM_TILE_ID,year),
-                                 full.names = TRUE)
-  
-  if (length(severity_rasters) == 0){
-    cat("No burn severity raster for this UTM tile exists.\n")
-    next
-  }
-  
   # Load optimal burn severity raster
   fname_optimal_dnbr_raster <- optimality_lut %>% 
     filter(fireid == FIRE_ID,severity_index == 'dNBR') %>% 
@@ -304,7 +293,7 @@ for(i in 1:nrow(final_lut)) {
              descals_burn_class = sample_points$descals_burned,
              .before = 1) %>% 
       gather(key = "Time", value = "LST", 
-             -c(ObservationID,burn_severity,burn_date,descals_burn_class)) %>% 
+             -c(ObservationID,burn_date,descals_burn_class)) %>% 
       mutate(Time = as_datetime(Time, format = fmt))
     
     # Export as table

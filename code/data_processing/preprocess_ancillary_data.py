@@ -40,7 +40,7 @@ if platform.system() == "Windows":
 else:
     DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
 
-OVERWRITE_DATA = False
+OVERWRITE_DATA = True
 
 # Load MGRS tile centroids to find msot suitable HLS tile & reproject to EPSG:3413 (ArcticDEM)
 mgrs_tile_centroids = gpd.read_file(os.path.join(DATA_FOLDER,
@@ -91,7 +91,7 @@ fire_perims_in_cavm = fires_east[fires_east['UniqueID'].
 
 
 # Assign optimal UTM tile name to the fire perimeter
-fire_perims_in_cavm.loc["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
+fire_perims_in_cavm["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
     find_optimal_utm_tile(mgrs_tile_centroids, row), axis=1)
 
 # Reset index

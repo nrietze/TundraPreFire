@@ -190,8 +190,8 @@ if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 for (FIRE_ID in final_lut$fireid){
   cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
   
-  filename <- sprintf("model_dataframes/%spct/%s_%s_model_dataframe.csv",
-                      frac_int,FIRE_ID,severity_index)
+  filename <- sprintf("model_dataframes/%spct/%s_model_dataframe.csv",
+                      frac_int,FIRE_ID)
   
   if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
   

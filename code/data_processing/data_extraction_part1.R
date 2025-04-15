@@ -55,7 +55,7 @@ sample_dnbr_points <- function(raster, sample_pct = 0.10) {
 burn_severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
 # TRUE to create random point samples on dNBR maps
 SAMPLE_FROM_DNBR_RASTER <- TRUE
@@ -82,8 +82,8 @@ top20_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
   slice_head(n = 20) 
 
-# TEST_ID <- top20_fires$fireid
-TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
+TEST_ID <- top20_fires$fireid
+# TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
 
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
