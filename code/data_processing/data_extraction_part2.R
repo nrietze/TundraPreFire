@@ -272,7 +272,7 @@ for(i in 1:nrow(final_lut)) {
       return(r)})
     
     # Concatenate as single raster 
-    lst <- rast(lst_list) %>% project(crs(rast_burn_severity))
+    lst <- rast(lst_list) %>% project(crs(rast_dnbr))
     
     # Extract dates and format to date
     lst_dates <- lapply(lst_time_list,get_ls_datetime)
@@ -300,7 +300,6 @@ for(i in 1:nrow(final_lut)) {
       t() %>%
       as_tibble() %>% 
       mutate(ObservationID = 1:nrow(.),
-             burn_severity = dnbr_sample[,1],
              burn_date = sample_points$burn_date,
              descals_burn_class = sample_points$descals_burned,
              .before = 1) %>% 
@@ -344,7 +343,10 @@ for(i in 1:nrow(final_lut)) {
       group_by(date, ObservationID) %>% 
       summarise(DailyMeanNDMI = mean(NDMI, na.rm = TRUE),
                 DailyMeanNDVI = mean(NDVI, na.rm = TRUE),
-                burn_severity = first(burn_severity),
+                dnbr = first(dnbr),
+                rdnbr = first(rdnbr),
+                rbr = first(rbr),
+                dgemi = first(dgemi),
                 burn_date = first(burn_date),
                 descals_burn_class = first(descals_burn_class))
     
