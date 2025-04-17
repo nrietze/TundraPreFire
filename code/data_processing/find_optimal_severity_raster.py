@@ -209,12 +209,15 @@ if __name__ == "__main__":
             df_temp['mean_optimality'] = [calculate_optimality_statistics(fname, polygon = perimeter, stat = "mean") for fname in tqdm(df_temp.fname_optimality_raster)]
             
             # Find optimal pair of optimality & clear pixel percentage (normalizing both to range [0, 1])
-            norm_opt = (df_temp["mean_optimality"] - df_temp["mean_optimality"].min()) / (df_temp["mean_optimality"].max() - df_temp["mean_optimality"].min())
-            norm_pct = (df_temp["pct_clear_pixel"] - df_temp["pct_clear_pixel"].min()) / (df_temp["pct_clear_pixel"].max() - df_temp["pct_clear_pixel"].min())
-            norm_doy = (df_temp["doy"] - df_temp["doy"].min()) / (df_temp["doy"].max() - df_temp["doy"].min())
+            # norm_opt = (df_temp["mean_optimality"] - df_temp["mean_optimality"].min()) / (df_temp["mean_optimality"].max() - df_temp["mean_optimality"].min())
+            # norm_pct = (df_temp["pct_clear_pixel"] - df_temp["pct_clear_pixel"].min()) / (df_temp["pct_clear_pixel"].max() - df_temp["pct_clear_pixel"].min())
+            # norm_doy = (df_temp["doy"] - df_temp["doy"].min()) / (df_temp["doy"].max() - df_temp["doy"].min())
 
-            # Get index of best pair with wieghted average
-            score = 1/3 * norm_opt + 1/3 * norm_pct + 1/3 * norm_doy
+            # # Get index of best pair with wieghted average
+            # score = 1/3 * norm_opt + 1/3 * norm_pct + 1/3 * norm_doy
+            
+            # Find optimal combination of optimality, clear pixel percentage, and doy
+            score = df_temp["mean_optimality"] * df_temp["pct_clear_pixel"] * (366 - df_temp["doy"])/366
             
             if all(np.isnan(score)):
                 continue
@@ -223,8 +226,10 @@ if __name__ == "__main__":
             df_best = df_temp.iloc[best_idx,:].to_frame().T
             output_lut = pd.concat([df_best,output_lut])
             
+            df_temp["score"] = score
+            
             output_table = pd.concat([df_temp,output_table])
     
     # Write to ouput tables
-    output_lut.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_LUT.csv"),sep=";")        
+    output_lut.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_LUT.csv"),sep=";")      
     output_table.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_overview_table.csv"),sep=";")        

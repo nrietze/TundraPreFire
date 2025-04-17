@@ -98,7 +98,8 @@ fire_perims_in_cavm["opt_UTM_tile"] = fire_perims_in_cavm.apply(lambda row :
 fire_perims_in_cavm = fire_perims_in_cavm.reset_index(drop=True)
 
 if not os.path.exists(fpath_perims_in_cavm) or OVERWRITE_DATA:
-    fire_perims_in_cavm.drop(columns=["centroid"]).to_file(fpath_perims_in_cavm, driver='GPKG', layer='name')
+    fire_perims_in_cavm.drop(columns=["centroid"]).to_file(fpath_perims_in_cavm, driver='GPKG', 
+                                                           layer='VIIRS_perimeters')
 
 # Create final format of look-up-table
 final_lut = fire_perims_in_cavm.drop(columns = ['mergid', 'n_pixels', 'farea', 'fperim',

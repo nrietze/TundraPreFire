@@ -60,7 +60,8 @@ load_data <- function(fire_attrs,burn_severity_index,frac_int,
   
   # Load sample points (with associated burn dates)
   fname_sample_points <-  paste0(
-    sprintf("~/data/feature_layers/%s_sample_points_%spct_burn_date.gpkg",FIRE_ID,frac_int)
+    sprintf("%s/feature_layers/%s_sample_points_%spct_burn_date.gpkg",
+            DATA_DIR,FIRE_ID,frac_int)
   )
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(severity_raster)) %>% 
@@ -110,8 +111,19 @@ PlotSeverityMapHist <- function(cropped_severity_raster){
 # 1. Configure and load stuff ----
 # ================================.
 # Config, loading and preparing data
-HLS_DIR <- "~/scratch/raster/hls/"
-TABLE_DIR <- "~/data/tables/"
+OS <- Sys.info()[['sysname']]
+if(OS == "Linux"){
+  
+  HLS_DIR <- "~/scratch/raster/hls/"
+  TABLE_DIR <- "~/data/tables/"
+  DATA_DIR <- "~/data/"
+} else {
+  
+  HLS_DIR <- "data/raster/hls/"
+  TABLE_DIR <- "data/tables/"
+  DATA_DIR <- "data/"
+}
+
 
 index_name <- "NDMI"
 burn_severity_index <- "dNBR"
@@ -131,16 +143,16 @@ optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
 
 # Load fire perimeters
 fire_perimeters <- vect(
-  "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
+  sprintf("%s/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg",DATA_DIR)
 )
 
 ## Build global model data table ----
 top20_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
-  slice_head(n = 20) 
+  slice_head(n = 25) 
 
-# TEST_ID <- top20_fires$fireid
-TEST_ID <- c(14211,14664,10792,17548)
+TEST_ID <- top20_fires$fireid
+# TEST_ID <- c(14211,14664,10792,17548)
 
 if (length(TEST_ID)>0){
   subset_lut <- filter(processing_lut, fireid %in% TEST_ID)
@@ -179,7 +191,6 @@ if (!is.na(FIRE_ID)){
   
   rm(data_list)
 }
-
 
 # 2. Descriptive statistics ----
 # ==============================.
