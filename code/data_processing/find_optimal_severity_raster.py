@@ -9,6 +9,7 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import fiona
 from osgeo import gdal
 import xarray as xr
 import rioxarray as rxr
@@ -34,12 +35,12 @@ def calculate_clear_pixel_percentage(data,
     if isinstance(data, str):
         # Load the sample raster
         with rio.open(data) as src:
-            geometry = gpd.GeoSeries([polygon.geometry.iloc[0]],crs = 4326)
+            geometry = gpd.GeoSeries([polygon.geometry.iloc[0]],crs = 3413)
             polygon_geom = geometry.to_crs(src.crs).geometry.iloc[0]
-        
+            
             # Crop to the polygon area
             image, _ = mask(src, [polygon_geom], crop=True, nodata = np.nan)
-
+            
     # Apply function to memory loaded xarray
     elif isinstance(data, xr.DataArray):
         # Reproject polygon to match xarray CRS
@@ -76,7 +77,7 @@ def calculate_optimality_statistics(data, polygon:gpd.GeoDataFrame, stat='mean')
     """
     # Load the sample raster
     with rio.open(data) as src:
-        geometry = gpd.GeoSeries([polygon.geometry.iloc[0]],crs = 4326)
+        geometry = gpd.GeoSeries([polygon.geometry.iloc[0]],crs = 3413)
         polygon_geom = geometry.to_crs(src.crs).geometry.iloc[0]
     
         # Crop to the polygon area
@@ -123,8 +124,11 @@ if __name__ == "__main__":
     TEST_ID = []
     if TEST_ID:
         fire_polygons = fire_polygons.loc[np.isin(fire_polygons.fireid,TEST_ID)]
+
+    FALSE_FIRES_ID = [23633,21461,15231,15970,17473,13223,
+                     14071,12145,10168,24037,13712]
     
-    fire_polygons = fire_polygons.loc[fire_polygons.tst_year>=2017]
+    fire_polygons = fire_polygons.loc[(fire_polygons.tst_year>=2017)]
     
     # Create output tables
     output_lut = pd.DataFrame(columns=[
@@ -137,8 +141,10 @@ if __name__ == "__main__":
         "severity_index"
     ])
     output_table = output_lut.copy()
+
+    print(f"Processing {len(fire_polygons)} polygons.")
     
-    for i,_ in enumerate(fire_polygons):
+    for i,_ in enumerate(fire_polygons.index):
         perimeter = fire_polygons.iloc[[i]]
         
         # Set Time
@@ -149,25 +155,30 @@ if __name__ == "__main__":
         
         # Get attributes of this perimeter
         FIREID = perimeter.fireid.item()
+        print(f"Processing fire: {FIREID} ({YEAR_START})...")
+        
+        if np.isin(FIREID,FALSE_FIRES_ID):
+            print("False positive fire, skipping.")
+            continue
+        
         fire_perimeter_attrs = processing_lut.loc[processing_lut.fireid == FIREID]
         
         if len(fire_perimeter_attrs)==0:
+            print(f"Fire not in processing lookup table.")
             continue
         
         UTM_TILE_NAME = fire_perimeter_attrs.opt_UTM_tile.item()
 
         for severity_index in ["dNBR","dGEMI"]:
 
-            print(f"Searching optimal {severity_index} raster for fire {FIREID}.")
-            
             # Get list of severity rasters for this fire perimeter
             burn_severity_files = glob(
-                os.path.join(HLS_FOLDER,"severity_rasters",f"{severity_index}_{UTM_TILE_NAME}*.tif")
+                os.path.join(HLS_FOLDER,"severity_rasters",f"{severity_index}_{UTM_TILE_NAME}_{YEAR_END}*.tif")
                 )
 
             # skip perimeters where no rasters exist yet
             if not burn_severity_files:
-                print(f"No burn severity rasters exist for UTM tile {UTM_TILE_NAME}.")
+                print(f"No {severity_index} rasters exist for fire {FIREID}.")
                 continue
             
             severity_datestrings = [os.path.basename(f).split('.')[0][-10:] for f in burn_severity_files]
@@ -197,10 +208,8 @@ if __name__ == "__main__":
             df_temp["severity_index"] = severity_index
             
             if not burn_severity_files:
-                print(f"No {severity_index} rasters found for fire {FIREID}.")
+                print(f"No {severity_index} rasters found.")
                 continue
-            
-            # da_burn_severity = ConcatRasters(burn_severity_files, severity_index)
             
             # Calculate clear pixel percentage for all burn severity files of this scar
             df_temp['pct_clear_pixel'] = [calculate_clear_pixel_percentage(fname, polygon = perimeter) for fname in tqdm(df_temp.fname_severity_raster)]
@@ -220,7 +229,9 @@ if __name__ == "__main__":
             score = df_temp["mean_optimality"] * df_temp["pct_clear_pixel"] * (366 - df_temp["doy"])/366
             
             if all(np.isnan(score)):
+                print("Nan optimality score...")
                 continue
+                
             best_idx = np.argmax(score)
             
             df_best = df_temp.iloc[best_idx,:].to_frame().T
@@ -229,6 +240,8 @@ if __name__ == "__main__":
             df_temp["score"] = score
             
             output_table = pd.concat([df_temp,output_table])
+
+    print(output_lut.fireid)
     
     # Write to ouput tables
     output_lut.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_LUT.csv"),sep=";")      

@@ -78,11 +78,6 @@ fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
-top20_fires <- fire_perimeters %>%
-  arrange(desc(farea)) %>% 
-  slice_head(n = 20) 
-
-
 # Load lookup tables
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017) 
@@ -90,8 +85,17 @@ final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
 optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
                             show_col_types = FALSE)
 
+FALSE_FIRES_ID <- c(23633,21461,15231,15970,17473,13223,
+                    14071,12145,10168,24037,13712)
+
+topN_fires <- fire_perimeters %>%
+  arrange(desc(farea)) %>% 
+  slice_head(n = 25)
+
 # TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
-# if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
+TEST_ID <- topN_fires$fireid
+
+if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 
@@ -107,6 +111,10 @@ for(i in 1:nrow(final_lut)) {
   year <- row$tst_year
   FIRE_ID <- row$fireid
   
+  if (FIRE_ID %in% FALSE_FIRES_ID){
+    next
+  }
+  
   print(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
   
   # Load optimal burn severity raster
@@ -114,6 +122,12 @@ for(i in 1:nrow(final_lut)) {
     filter(fireid == FIRE_ID,
            severity_index == burn_severity_index) %>% 
     pull(fname_severity_raster)
+  
+  if (length(fname_optimal_severity_raster) ==0){
+    cat("No burn severity raster stored for this fire scar yet.")
+    next
+  }
+  
   rast_burn_severity <- rast(fname_optimal_severity_raster)
   
   # get fire perimeter
@@ -130,11 +144,12 @@ for(i in 1:nrow(final_lut)) {
     
     # Load descals burned area raster for the selected fire
     descals_tilename <- final_lut %>% 
-      filter(fireid  == FIRE_ID) %>% 
+      filter(fireid == FIRE_ID) %>% 
       select(descals_file)
     
     # read raster
-    descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",descals_tilename)) 
+    descals_rast <- rast(paste0("~/data/raster/burned_area_descals/",
+                                descals_tilename))
     
     # Reclassify to binary burned area raster where 1 is burned that year (of selected fire perimeter), 0 not
     year_value_descals <- year - 1990 # value 30 is for burned area in 2020

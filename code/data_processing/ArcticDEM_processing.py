@@ -36,7 +36,7 @@ def find_optimal_dem_tile(dem_tile_centroids: gpd.GeoDataFrame,
     # reportt the tilename
     return nearest_mgrs_tile_centroid.Name.item()
 
-def download_and_extract_arcticdem(url, output_dir="data/raster/arcticDEM"):
+def download_and_extract_arcticdem(url, output_dir="scratch/raster/arcticDEM"):
     """Function to download ArcticDEM mosaic tiles with wget
 
     Args:

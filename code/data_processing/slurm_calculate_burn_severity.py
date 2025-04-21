@@ -53,7 +53,7 @@ def calculate_clear_pixel_percentage(data,
     if isinstance(data, str):
         # Load the sample raster
         with rio.open(data) as src:
-            geometry = gpd.GeoSeries([polygon.geometry],crs = 4326)
+            geometry = gpd.GeoSeries([polygon.geometry],crs = 3413)
             polygon_geom = geometry.to_crs(src.crs).geometry.iloc[0]
         
             # Crop to the polygon area
@@ -65,7 +65,7 @@ def calculate_clear_pixel_percentage(data,
                                             replace_string_in_filename(data, "watermask")))
         
         with rio.open(water_mask_file) as watermask_src:
-            eometry = gpd.GeoSeries([polygon.geometry],crs = 4326)
+            eometry = gpd.GeoSeries([polygon.geometry],crs = 3413)
             polygon_geom = geometry.to_crs(watermask_src.crs).geometry.iloc[0]
             water_mask, _ = mask(watermask_src, [mapping(polygon_geom)], crop=True)
         
@@ -73,7 +73,7 @@ def calculate_clear_pixel_percentage(data,
     elif isinstance(data, xr.DataArray):
         # Reproject polygon to match xarray CRS
         crs = data.rio.crs
-        geometry = gpd.GeoSeries([polygon.geometry], crs=4326).to_crs(crs)
+        geometry = gpd.GeoSeries([polygon.geometry], crs=3413).to_crs(crs)
         
         # Clip the xarray to the polygon
         clipped = data.rio.clip(geometry, all_touched=True)
@@ -368,7 +368,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
 if __name__ == "__main__":
     print("Loading data...")
 
-    OVERWRTIE_DATA = True
+    OVERWRTIE_DATA = False
     
     if platform.system() == "Windows":
         DATA_FOLDER = 'data/' # on local machine

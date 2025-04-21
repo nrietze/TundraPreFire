@@ -115,7 +115,7 @@ coordinates = [rio.open(file).lnglat() for file in tiff_list]
 
 points = [Point(x, y) for x, y in coordinates]
 
-descals_tile_centroids = gpd.GeoSeries(points)
+descals_tile_centroids = gpd.GeoSeries(points, crs=4326).to_crs("EPSG:3413")
 descals_tile_centroids = gpd.GeoDataFrame(
     geometry=points,
     data={
@@ -131,7 +131,7 @@ for row in tqdm(fire_perims_in_cavm.iterrows(), total = len(fire_perims_in_cavm)
     vect = row[1]
 
     # Calculate fire perimeter centroid
-    fire_centroid = vect.geometry.centroid
+    fire_centroid = vect.centroid
 
     # Find nearest Descals tile centroid to fire perimeter (in EPSG:4326)
     sindex = descals_tile_centroids.geometry.sindex.nearest(fire_centroid)

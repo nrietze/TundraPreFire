@@ -107,6 +107,9 @@ fire_perimeters <- vect(
   "~/data/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg"
 )
 
+FALSE_FIRES_ID <- c(23633,21461,15231,15970,17473,13223,
+                    14071,12145,10168,24037,13712)
+
 top20_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
   slice_head(n = 20) 
@@ -138,6 +141,10 @@ for(i in 1:nrow(final_lut)) {
   UTM_TILE_ID <- row$opt_UTM_tile
   year <- row$tst_year
   FIRE_ID <- row$fireid
+  
+  if (FIRE_ID %in% FALSE_FIRES_ID){
+    next
+  }
   
   cat(sprintf("Extracting data for fire %s in UTM tile: %s \n",
               FIRE_ID,UTM_TILE_ID))

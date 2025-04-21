@@ -152,7 +152,7 @@ top20_fires <- fire_perimeters %>%
   slice_head(n = 25) 
 
 TEST_ID <- top20_fires$fireid
-# TEST_ID <- c(14211,14664,10792,17548)
+TEST_ID <- c(14211,14664,10792,17548)
 
 if (length(TEST_ID)>0){
   subset_lut <- filter(processing_lut, fireid %in% TEST_ID)
@@ -437,6 +437,11 @@ run_lm_day <- function(day,y_var, data) {
   model <- lmer(formula, data = data, REML = FALSE)
   model_summary <- summary(model)
   
+  reduced_formula <- as.formula(paste(y_var, "~", 1, "+ (1 | fireid)"))
+  reduced.lmer <- lmer(reduced_formula,data = data, REML = FALSE)
+  
+  anova(reduced.lmer, model)  # the two models are not significantly different
+  
   # Extract fixed effect estimates
   coefs <- fixef(model)  # Named vector
   # pvals <- coef(summary(model))[, "Pr(>|t|)"]
@@ -471,7 +476,7 @@ fig <- ggplot(results) +
   theme_cowplot()
 
 if (SAVE_FIGURES){
-  ggsave2(fig,filename = sprintf("figures/%s_%s_subset_R2_fullmod_burnedonly.png",burn_severity_index,FIRE_ID),
+  ggsave2(fig,filename = sprintf("figures/%s_all_R2_fullmod_burnedonly.png",burn_severity_index),
           width = 8,height = 6,bg = "white")
 }
 
@@ -484,8 +489,14 @@ results %>%
   ggplot() + 
   geom_point(aes(x = days_before_fire, y = values)) + 
   labs(x = "Days before fire", y = "Effect size") +
-  facet_wrap(~coefficient,scales="free",ncol = 2) + 
+  facet_wrap(~coefficient,scales="free",nrow = 2) + 
   theme_cowplot()
+
+if (SAVE_FIGURES){
+  ggsave2(filename = sprintf("figures/%s_effect_sizes_allmod.png",
+                             burn_severity_index),
+          width = 10,height = 8,bg = "white")
+}
 
 ## b. Run linear model on individual site  ----
 run_lm <- function(day,y_var, data) {
