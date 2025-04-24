@@ -6,11 +6,12 @@ import geopandas as gpd
 import pandas as pd
 import datetime
 import numpy as np
-from tqdm import tqdm
 from osgeo import gdal
 import xarray as xr
 import rioxarray as rxr
 import rasterio as rio
+import multiprocessing
+from joblib import Parallel, delayed
 
 # %% 0. Configure functions
 def extract_datetime(PATH):
@@ -39,7 +40,7 @@ def spatial_join_multiple_files(random_points: gpd.GeoDataFrame,
     result_list = []
 
     print("Performing spatial join of sample points and sub-daily perimeters.")
-    for filepath in tqdm(df_viirs_filtered['filepath']):
+    for filepath in df_viirs_filtered['filepath']:
         # Read sub-daily perimeter file
         sd_perimeters = gpd.read_file(filepath)
         
@@ -74,33 +75,7 @@ def spatial_join_multiple_files(random_points: gpd.GeoDataFrame,
     
     return final_result
 
-#%% 1. Load data
-if platform.system() == "Windows":
-    DATA_FOLDER = 'data/' # on local machine
-else:
-    DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
-
-PATH_VIIRS_PERIMETERS = os.path.join(DATA_FOLDER,"feature_layers/fire_atlas/")
-
-# Load VIIRS perimeters in Siberian tundra
-FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,
-                                        "viirs_perimeters_in_cavm_e113.gpkg")
-
-if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
-    print("CAVM Fire perimeter file exists, loading.")
-    fire_perims_in_cavm = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
-else:
-    print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
-
-# Set proportion of sampled values per bin
-frac_to_sample = 0.01
-frac_int = int(frac_to_sample *100)
-
-gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers",f"*_sample_points_{frac_int}pct.gpkg"))
-print("Number of files to process:",len(gpkg_list))
-
-#%% 2. Apply burn date extraction to all fire perimeters
-for path in gpkg_list:
+def joblib_function(path):
     fname = os.path.basename(path)
     fname_out = re.sub(r"\\*.gpkg$", r"_burn_date.gpkg", path)
     
@@ -160,3 +135,42 @@ for path in gpkg_list:
     
     # export data
     random_points_sjoin.to_file(fname_out)
+
+#%% 1. Load data
+if platform.system() == "Windows":
+    DATA_FOLDER = 'data/' # on local machine
+else:
+    DATA_FOLDER = '/home/nrietz/data/' # on sciencecluster
+
+PATH_VIIRS_PERIMETERS = os.path.join(DATA_FOLDER,"feature_layers/fire_atlas/")
+
+# Load VIIRS perimeters in Siberian tundra
+FN_VIIRS_CAVM_PERIMETERS = os.path.join(PATH_VIIRS_PERIMETERS,
+                                        "viirs_perimeters_in_cavm_e113.gpkg")
+
+if os.path.exists(FN_VIIRS_CAVM_PERIMETERS):
+    print("CAVM Fire perimeter file exists, loading.")
+    fire_perims_in_cavm = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
+else:
+    print("Please prepare and filter the VIIRS fire perimeters using\n \"0_preprocess_ancillary_data.py\" ")
+
+# Set proportion of sampled values per bin
+frac_to_sample = 0.01
+frac_int = int(frac_to_sample *100)
+
+gpkg_list = glob(os.path.join(DATA_FOLDER,"feature_layers",f"{frac_int}pct",f"*_sample_points_{frac_int}pct.gpkg"))
+print("Number of files to process:",len(gpkg_list))
+
+#%% 2. Apply burn date extraction to all fire perimeters
+
+# run in parallel 
+num_workers = (int(os.environ.get("SLURM_CPUS_PER_TASK")) 
+               if os.environ.get("SLURM_CPUS_PER_TASK")
+               else os.cpu_count() )
+    
+print("Starting parallelized calculation...")
+
+multiprocessing.set_start_method('spawn')
+
+Parallel(n_jobs=num_workers, backend='loky')(
+    delayed(joblib_function)(path) for path in gpkg_list)

@@ -340,6 +340,8 @@ def calc_index(files: list,
         
         with np.errstate(divide='ignore'): #to ignore divide by zero
             term1 = (2 * (nir**2 - red**2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
+            
+        with np.errstate(divide='ignore'): 
             spectral_index_data = term1 * (1 - 0.25 * term1) - ((red - 0.125) / (1 - red))
         
         # Replace the dummy xarray.DataArray data with the new spectral index data
@@ -479,6 +481,13 @@ def joblib_hls_preprocessing(files: list,
         if skip_source and skip_source in files[0]:
             logger.info("not reprocessing Sentinel data, only for Landsat..")
             continue
+
+        # Check if current year data is not a pre-fire year for burn severity to skip NDMI and NDVI for pre-fire year
+        UTM_TILE_ID = original_name.split('.')[2][1:]
+        year = int(original_name.split('.')[3][:4])
+        
+        if not year in processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_ID, "tst_year"] and any(pattern in band_index for pattern in ["NDMI","NDVI"]):
+            continue
         
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
         if os.path.exists(out_path):
@@ -616,6 +625,9 @@ if __name__ == "__main__":
         utm_years = fire_perimeters_in_utm.tst_year.unique()
         
         for year in utm_years:
+            if year < 2017:
+                continue
+            
             print(f"Processing UTM tile {UTM_TILE_NAME}, Year {year}")
 
             if any(pattern in band_index for pattern in ["NBR","GEMI"]):
@@ -643,8 +655,8 @@ if __name__ == "__main__":
                 hls_granules_paths_post = search_files_by_doy_range(
                     hls_granules_paths_tile, START_DATE_POST, END_DATE_POST)
 
-                if hls_granules_paths_pre:
-                    print("Pre-fire HLS granules downloaded already, skipping download...\n")
+                if len(hls_granules_paths_pre) > 10:
+                    print(f"{len(hls_granules_paths_pre)} pre-fire HLS granules downloaded already, skipping download...\n")
                 else:
                     # Run shell script to download pre-fire HLS data
                     temp_tile_file = f"tmp/temp_tile{TASK_ID}.txt"

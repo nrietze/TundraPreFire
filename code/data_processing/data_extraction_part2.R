@@ -3,12 +3,11 @@ library(sf)
 library(tidyterra)
 library(rts)
 library(readr)
-# library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
 library(lubridate)
-print(getwd())
+library(tictoc)
 
 set.seed(10)
 
@@ -31,42 +30,6 @@ assign_rast_time <- function(lyr) {
   return(lyr)
 }
 
-stack_time_series <- function(hls_dir,utm_tile_id, index_name){
-  # List spectral_index COGs
-  spectral_index_files_s30 <- list.files(hls_dir,
-                                         pattern = sprintf("HLS.S30.T%s.*%s\\.tif$",
-                                                           utm_tile_id,index_name))
-  spectral_index_files_l30 <- list.files(hls_dir,
-                                         pattern = sprintf("HLS.L30.T%s.*%s\\.tif$",
-                                                           utm_tile_id,index_name))
-  
-  cat("Loading rasters...\n")
-  
-  # Load rasters to list
-  spectral_index_s30_list <- lapply(paste0(hls_dir, spectral_index_files_s30),rast)
-  spectral_index_l30_list <- lapply(paste0(hls_dir, spectral_index_files_l30),rast)
-  
-  cat("Creating image stacks...\n")
-  
-  # Concatenate as single raster and assign time dimension
-  spectral_index_s30 <- rast(spectral_index_s30_list)
-  spectral_index_s30 <- sapp(spectral_index_s30, assign_rast_time)
-  
-  spectral_index_l30 <- rast(spectral_index_l30_list)
-  spectral_index_l30 <- sapp(spectral_index_l30, assign_rast_time)
-  
-  # Merge S30 and L30 stack
-  spectral_index <- c(spectral_index_s30, spectral_index_l30)
-  
-  # Shift NDMI by 1
-  if (index_name == "NDMI"){
-    spectral_index <- spectral_index + 1
-  }
-  
-  cat("done.\n")
-  return(spectral_index)
-}
-
 get_ls_datetime <- function(raster){
   datenum <- global(raster,"max",na.rm=T)
   date <- as.Date(as.numeric(datenum), origin = "1970-01-01")
@@ -77,9 +40,7 @@ get_ls_datetime <- function(raster){
 # ===================================.
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- FALSE
-
-# TEST_ID <- c(14664,17548,10792) # fire ID for part of the large fire scar
+OVERWRITE_DATA <- TRUE
 
 # Define percentile for sample cutoff
 pct_cutoff <- 0.5
@@ -92,15 +53,19 @@ OS <- Sys.info()[['sysname']]
 # Output directory for sample tables
 TABLE_DIR <- ifelse(OS == "Linux","~/data/tables/","data/tables/")
 OUT_DIR <- paste0(TABLE_DIR,"sampled_data/",frac_int,"pct/")
+HLS_DIR <- normalizePath("~/scratch/raster/hls/processed/")
 
 dir.create(OUT_DIR, showWarnings = FALSE)
 
 # Load lookup tables
-final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
-  filter(tst_year >= 2017) 
+dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 
 optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
                             show_col_types = FALSE)
+
+processing_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
+  filter(tst_year >= 2017) %>% 
+  arrange(by = opt_UTM_tile)
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
@@ -110,16 +75,16 @@ fire_perimeters <- vect(
 FALSE_FIRES_ID <- c(23633,21461,15231,15970,17473,13223,
                     14071,12145,10168,24037,13712)
 
-top20_fires <- fire_perimeters %>%
+topN_fires <- fire_perimeters %>%
+  filter(tst_year >= 2017) %>% 
   arrange(desc(farea)) %>% 
-  slice_head(n = 20) 
+  slice_head(n = 25) 
 
-# TEST_ID <- top20_fires$fireid
-TEST_ID <- c(14664,10792,17548) 
+# TEST_ID <- c(14664,10792,17548) 
+TEST_ID <- topN_fires$fireid
 
-if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
+if (length(TEST_ID) > 0){final_lut <- filter(processing_lut,fireid %in% TEST_ID)}
 
-dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 
 # Run data_extraction_part1.R first
 
@@ -134,7 +99,9 @@ dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tile
 
 # 3. Stack rasters and extract data----
 # =====================================.
-for(i in 1:nrow(final_lut)) {
+UTM_TILE_ID_old <- 9999 # dummy ID to start with
+
+for(i in 22:nrow(final_lut)) {
   row <- final_lut[i, ]
   
   # extract fire perimeter attributes
@@ -157,6 +124,11 @@ for(i in 1:nrow(final_lut)) {
   rdnbr_path <- gsub("dNBR", "RdNBR", fname_optimal_dnbr_raster)
   rbr_path <- gsub("dNBR", "RBR", fname_optimal_dnbr_raster)
   
+  if (length(rbr_path) == 0){
+    cat("missing burn severity files. Skipping data extraction. \n")
+    next
+  }
+  
   fname_optimal_dgemi_raster <- optimality_lut %>% 
     filter(fireid == FIRE_ID,severity_index == 'dGEMI') %>% 
     pull(fname_severity_raster)
@@ -167,8 +139,8 @@ for(i in 1:nrow(final_lut)) {
   rast_dgemi <- rast(fname_optimal_dgemi_raster)
   
   # Load sample points with burn dates
-  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct_burn_date.gpkg",
-                                 FIRE_ID,frac_to_sample*100)
+  fname_sample_points <- sprintf("~/data/feature_layers/%spct/%s_sample_points_%spct_burn_date.gpkg",
+                                 frac_int,FIRE_ID,frac_int)
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(rast_dnbr)) %>% 
     mutate(ObservationID = 1:nrow(.))
@@ -189,18 +161,57 @@ for(i in 1:nrow(final_lut)) {
     
     # only stack rasters if needed (takes a while)
     if (!file.exists(paste0(OUT_DIR,filename)) || OVERWRITE_DATA){
-      cat("Stacking and extracting spectral index data... \n")
       
-      HLS_DIR <- "~/scratch/raster/hls/processed/"
-      image_stack <- stack_time_series(HLS_DIR,UTM_TILE_ID, index_name)
-      
-      # create raster time series object
-      rt <- rts(image_stack, time(image_stack))
-      
+      # use previous stacks, if same UTM tile
+      if ((UTM_TILE_ID == UTM_TILE_ID_old) &
+          exists("ndvi_rt") &
+          exists("ndmi_rt") ){
+        # If still the same UTM tile, call old image stacks
+        if ((index_name == "NDMI") & (crs(ndmi_rt[[1]])==crs(rast_dnbr))){
+          rast_series <- ndmi_rt
+        } else if ((index_name == "NDVI") & (crs(ndvi_rt[[1]])==crs(rast_dnbr))){
+          rast_series <- ndvi_rt
+        }
+      } else{
+        cat(sprintf("Stacking and extracting %s data... \n",index_name))
+
+        # List spectral_index COGs
+        spectral_index_files_s30 <- list.files(HLS_DIR,
+                                               pattern = sprintf("HLS.S30.T%s.%s.*%s\\.tif$",
+                                                                 UTM_TILE_ID,year,index_name),
+                                               full.names = TRUE)
+        spectral_index_files_l30 <- list.files(HLS_DIR,
+                                               pattern = sprintf("HLS.L30.T%s.%s.*%s\\.tif$",
+                                                                 UTM_TILE_ID,year,index_name),
+                                               full.names = TRUE)
+        
+        # Concatenate as single raster and assign time dimension
+        spectral_index_s30 <- rast(spectral_index_files_s30)
+        spectral_index_s30 <- sapp(spectral_index_s30, assign_rast_time)
+        
+        spectral_index_l30 <- rast(spectral_index_files_l30)
+        spectral_index_l30 <- sapp(spectral_index_l30, assign_rast_time)
+        
+        # Merge S30 and L30 stack
+        spectral_index <- c(spectral_index_s30, spectral_index_l30)
+        
+        # create raster time series object
+        cat("Converting to time series.")
+        rast_series <- rts(spectral_index, time(spectral_index))
+
+        if (index_name == "NDMI"){
+          ndmi_rt <- rast_series
+        } else if (index_name == "NDVI"){
+          ndvi_rt <- rast_series
+        }
+      }
+
       # Extract spectral index time series at each sample point
-      df_spectral_index <- terra::extract(rt, sample_points) %>%
+      tic()
+      df_spectral_index <- terra::extract(rast_series, sample_points) %>%
         t() %>%
-        as_tibble() 
+        as_tibble()
+      toc()
       
       df_long <- df_spectral_index %>% 
         mutate(ObservationID = 1:nrow(.),
@@ -252,7 +263,7 @@ for(i in 1:nrow(final_lut)) {
     # List LST tiffs (except "tile" files)
     LS8_DIR <- "~/data/raster/landsat8"
     lst_files <- list.files(LS8_DIR, 
-                            pattern = paste0("^", FIRE_ID, ".*\\.tif$"),
+                            pattern = paste0("^", FIRE_ID,"_",UTM_TILE_ID, ".*\\.tif$"),
                             full.names = TRUE)
     
     lst_files <- lst_files[!grepl("tile", lst_files)]
@@ -409,4 +420,5 @@ for(i in 1:nrow(final_lut)) {
     # Write filtered data frame to CSV
     write_csv2(df_filtered,paste0(OUT_DIR,fn_filtered_df))
   }
+  UTM_TILE_ID_old <- UTM_TILE_ID
 }

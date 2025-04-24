@@ -19,6 +19,7 @@ from zipfile import ZipFile
 import geopandas as gpd
 import pandas as pd
 
+ee.Authenticate()
 ee.Initialize(project = "ee-nrietze")
 
 #%% 0. Configure parameters
@@ -39,6 +40,12 @@ FN_VIIRS_CAVM_PERIMETERS = os.path.join(DATA_FOLDER,
                                         "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 fire_polygons = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
 fire_polygons = fire_polygons.loc[fire_polygons.tst_year>=2017]
+
+USE_TOP_25 = True
+if USE_TOP_25:
+    fire_polygons = fire_polygons.sort_values("farea",ascending=False).head(25)
+
+    print(f"Using top {len(fire_polygons)} largest fire polygons. \n")
 
 # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
 processing_lut = pd.read_csv(
@@ -203,11 +210,18 @@ for i in fire_polygons.index:
     # Only process HLS data for fires starting in 2017
     if YEAR_START < 2017:
         continue
-    
+
     # Get attributes of this perimeter
     FIREID = perimeter.fireid.item()
     fire_perimeter_attrs = processing_lut.loc[processing_lut.fireid == FIREID]
     TILE_NAME = fire_perimeter_attrs.opt_UTM_tile.item()
+
+    # Skip processing if any files for tile and fire exist
+    existing_lst_list = glob(os.path.join(OUT_FOLDER,f"{FIREID}_{TILE_NAME}*"))
+    
+    if existing_lst_list:
+        print(f"(Some) LST data for fire {FIREID} in {TILE_NAME} exist, skipping gee download.\n")
+        continue
     
     # Set output EPSG for this perimeter by extracting UTM EPSG code for reprojection
     utm_epsg_code = 32600 + int(TILE_NAME[:2])

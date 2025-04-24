@@ -145,6 +145,7 @@ def calculate_severity_metrics(gemi_prefire_composite,
         elif index_name == "RdNBR":
             # Calculate RdNBR (pre - post fire)
             dnbr = nbr_prefire_composite - nbr_postfire_composite
+            
             final_index = dnbr / np.sqrt(abs(nbr_prefire_composite))
             
         elif index_name == "RBR":
@@ -160,8 +161,6 @@ def calculate_severity_metrics(gemi_prefire_composite,
         
         # Check if output raster has > 80% valid pixels in fire perimeter
         clear_percentage = calculate_clear_pixel_percentage(final_index,polygon=polygon)
-        
-        print(f"Clear pixel percentage in current perimeter: {clear_percentage}")
         
         if clear_percentage > MIN_VALID_PERCENTAGE and OUT_DIR is not None:
             out_name = os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{date_postfire}.tif")
@@ -214,19 +213,18 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         # Create list of HLS NIR and SWIR files
         nir1_files_lsat = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.L30.*{utm_tileid}*B05.tif"),recursive=True) #Landsat NIR1
         nir1_files_s2 = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.S30.*{utm_tileid}*B8A.tif"),recursive=True) #Sentinel-2 NIR1
-        
         nir1_files = nir1_files_lsat + nir1_files_s2
         
         swir2_files_lsat = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.L30.*{utm_tileid}*B07.tif"),recursive=True) #Landsat SWIR2
         swir2_files_s2 = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.S30.*{utm_tileid}*B12.tif"),recursive=True) #Sentinel-2 SWIR2
         swir2_files = swir2_files_lsat + swir2_files_s2
-        
+
         # Only use scenes with <= 20 % clear pixels in the perimeter to process further
+        MIN_VALID_PERCENTAGE = 20
+        
         good_nbr_files = []
         good_gemi_files = []
 
-        MIN_VALID_PERCENTAGE = 20
-        
         for file in nbr_files:
             clear_percentage = calculate_clear_pixel_percentage(file,
                                                                 polygon = perimeter)
@@ -280,87 +278,100 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
 
             pf_string = postfire_date.strftime("%Y-%m-%d")
 
-            # Check if any burn severity raster for this tile and date is missing
-            missing_files = [os.path.join(
+            # Define post-fire search window (±7 days of same day last year)
+            postfire_start = postfire_date - pd.Timedelta(days=MAX_TIMEDELTA)
+            postfire_end = postfire_date + pd.Timedelta(days=MAX_TIMEDELTA)
+        
+            # Define pre-fire search window (±7 days of same day last year)
+            prefire_start = postfire_date - relativedelta(years=1) - pd.Timedelta(days=MAX_TIMEDELTA)
+            prefire_end = postfire_date - relativedelta(years=1) + pd.Timedelta(days=MAX_TIMEDELTA)
+
+            # get filepaths for missing severity files
+            missing_severity_files = [os.path.join(
                 OUT_DIR, f"{index_name}_{utm_tileid}_{pf_string}.tif"
             ) for index_name in index_names if not os.path.exists(
                 os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{pf_string}.tif")
             )]
 
-            # Skip calculation, if we have severity rasters for all indices
-            if not missing_files and not OVERWRTIE_DATA:
-                print(f"All severity rasters for tile {utm_tileid} on {pf_string} already exists. Skipping calculation.\n")
-                continue
+            # calculate burn severity rasters if not existing yet
+            if missing_severity_files or OVERWRTIE_DATA:
+                
+                # Subset severity data in time
+                prefire_gemi = gemi_ts.sel(time=slice(prefire_start, prefire_end))
+                prefire_nbr = nbr_ts.sel(time=slice(prefire_start, prefire_end))
+            
+                if prefire_gemi.time.size > 0 and prefire_nbr.time.size > 0:  # Ensure pre-fire data exists
+                    print(f"Calculating severity rasters for tile {utm_tileid} on {pf_string}...\n")
 
-            print(f"Calculating severity rasters for tile {utm_tileid} on {pf_string}...\n")
+                    # Subset severity data in time
+                    postfire_gemi = gemi_ts.sel(time=slice(postfire_start, postfire_end))
+                    postfire_nbr = nbr_ts.sel(time=slice(postfire_start, postfire_end))
+                    
+                    # Composite data
+                    gemi_prefire_composite = prefire_gemi.mean(dim="time")
+                    nbr_prefire_composite = prefire_nbr.mean(dim="time")
             
-            # Define post-fire search window (±7 days of same day last year)
-            postfire_start = postfire_date - pd.Timedelta(days=MAX_TIMEDELTA)
-            postfire_end = postfire_date + pd.Timedelta(days=MAX_TIMEDELTA)
-        
-            # Select post-fire data
-            postfire_gemi = gemi_ts.sel(time=slice(postfire_start, postfire_end))
-            postfire_nbr = nbr_ts.sel(time=slice(postfire_start, postfire_end))
-            
-            postfire_nir1 = nir1_ts.sel(time=slice(postfire_start, postfire_end))
-            postfire_swir2 = swir2_ts.sel(time=slice(postfire_start, postfire_end))
-        
-            # Minimum composite over available days
-            gemi_postfire_composite = postfire_gemi.min(dim="time")
-            nbr_postfire_composite = postfire_nbr.min(dim="time")
-            
-            nir1_postfire_composite = postfire_nir1.min(dim="time")
-            swir2_postfire_composite = postfire_swir2.min(dim="time")
+                    gemi_postfire_composite = postfire_gemi.min(dim="time")
+                    nbr_postfire_composite = postfire_nbr.min(dim="time")
+                    
+                    calculate_severity_metrics(
+                        gemi_prefire_composite, gemi_postfire_composite,
+                        nbr_prefire_composite, nbr_postfire_composite,
+                        date_postfire=postfire_date.strftime("%Y-%m-%d"),
+                        index_names=index_names, utm_tileid=utm_tileid,
+                        polygon=perimeter,
+                        MIN_VALID_PERCENTAGE=MIN_VALID_PERCENTAGE,
+                        OUT_DIR=OUT_DIR
+                    )
 
-            # Define pre-fire search window (±7 days of same day last year)
-            prefire_start = postfire_date - relativedelta(years=1) - pd.Timedelta(days=MAX_TIMEDELTA)
-            prefire_end = postfire_date - relativedelta(years=1) + pd.Timedelta(days=MAX_TIMEDELTA)
-        
-            # Select pre-fire composites
-            prefire_gemi = gemi_ts.sel(time=slice(prefire_start, prefire_end))
-            prefire_nbr = nbr_ts.sel(time=slice(prefire_start, prefire_end))
-            
-            prefire_nir1 = nir1_ts.sel(time=slice(prefire_start, prefire_end))
-            prefire_swir2 = swir2_ts.sel(time=slice(prefire_start, prefire_end))
-            
-            if prefire_gemi.time.size > 0 and prefire_nbr.time.size > 0:  # Ensure pre-fire data exists
-                # Median composite over available days
-                gemi_prefire_composite = prefire_gemi.mean(dim="time")
-                nbr_prefire_composite = prefire_nbr.mean(dim="time")
-                
-                nir1_prefire_composite = prefire_nir1.min(dim="time")
-                swir2_prefire_composite = prefire_swir2.min(dim="time")
-
-                calculate_severity_metrics(
-                    gemi_prefire_composite, gemi_postfire_composite,
-                    nbr_prefire_composite, nbr_postfire_composite,
-                    date_postfire=postfire_date.strftime("%Y-%m-%d"),
-                    index_names=index_names, utm_tileid=utm_tileid,
-                    polygon=perimeter,
-                    MIN_VALID_PERCENTAGE=1,
-                    OUT_DIR=OUT_DIR
-                )
-                
-                ypre=nir1_prefire_composite.to_numpy()
-                xpre=swir2_prefire_composite.to_numpy()
-                ypost=nir1_postfire_composite.to_numpy()
-                xpost=swir2_postfire_composite.to_numpy()
-                
-                optimality = Spectral_optimality(xpre,ypre,xpost,ypost)
-                
-                opt_raster_out = nir1_prefire_composite.copy()
-                opt_raster_out.data = optimality
-                opt_raster_out.name = "Optimality"
-                
-                out_name = os.path.join(os.path.dirname(OUT_DIR),
-                                        'optimality_rasters',
-                                        f"optimality_{utm_tileid}_{pf_string}.tif")
-                
-                # Export as Cloud Optimized GeoTIFF
-                opt_raster_out.rio.to_raster(raster_path=out_name, driver="COG")
-                
+                else:
+                    print(f"No pre-fire severity data found for {postfire_date}")
             else:
-                print(f"No pre-fire match found for {postfire_date}")
+                print(f"All severity rasters for tile {utm_tileid} on {pf_string} already exist. Skipping calculation.\n")
+
+            # calculate optimality rasters if not existing yet
+            optimality_out_name = os.path.join(os.path.dirname(OUT_DIR),
+                                               'optimality_rasters',
+                                               f"optimality_{utm_tileid}_{pf_string}.tif")
+            
+            if not os.path.exists(optimality_out_name) or OVERWRTIE_DATA:
+
+                # Subset NIR/SWIR data in time
+                prefire_nir1 = nir1_ts.sel(time=slice(prefire_start, prefire_end))
+                prefire_swir2 = swir2_ts.sel(time=slice(prefire_start, prefire_end))
+                
+                if prefire_nir1.time.size > 0 and prefire_swir2.time.size > 0:  # Ensure pre-fire data exists
+                    print(f"Calculating optimality rasters for tile {utm_tileid} on {pf_string}...\n")
+                    
+                    # Subset NIR/SWIR data in time
+                    postfire_nir1 = nir1_ts.sel(time=slice(postfire_start, postfire_end))
+                    postfire_swir2 = swir2_ts.sel(time=slice(postfire_start, postfire_end))
+                    
+                    # Composite data
+                    nir1_prefire_composite = prefire_nir1.min(dim="time")
+                    swir2_prefire_composite = prefire_swir2.min(dim="time")
+    
+                    nir1_postfire_composite = postfire_nir1.min(dim="time")
+                    swir2_postfire_composite = postfire_swir2.min(dim="time")
+                    
+                    ypre=nir1_prefire_composite.to_numpy()
+                    xpre=swir2_prefire_composite.to_numpy()
+                    ypost=nir1_postfire_composite.to_numpy()
+                    xpost=swir2_postfire_composite.to_numpy()
+                    
+                    optimality = Spectral_optimality(xpre,ypre,xpost,ypost)
+                    
+                    opt_raster_out = nir1_prefire_composite.copy()
+                    opt_raster_out.data = optimality
+                    opt_raster_out.name = "Optimality"
+                
+                    # Export as Cloud Optimized GeoTIFF
+                    opt_raster_out.rio.to_raster(raster_path=optimality_out_name, driver="COG")
+                
+                else:
+                    print(f"No pre-fire NIR/SWIR data found for {postfire_date}")
+            else:
+                print(f"All optimality rasters for tile {utm_tileid} on {pf_string} already exist. Skipping calculation.\n")
 
     return None
 

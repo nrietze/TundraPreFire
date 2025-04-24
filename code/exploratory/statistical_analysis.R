@@ -4,10 +4,14 @@ library(spatstat.utils)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
+library(colorspace)
 library(lubridate)
+library(pbapply)
+library(INLA)
 library(lme4)
 library(brms)
 library(tidybayes)
+library(tictoc)
 set.seed(10)
 
 # 0. Set up functions ----
@@ -60,8 +64,8 @@ load_data <- function(fire_attrs,burn_severity_index,frac_int,
   
   # Load sample points (with associated burn dates)
   fname_sample_points <-  paste0(
-    sprintf("%s/feature_layers/%s_sample_points_%spct_burn_date.gpkg",
-            DATA_DIR,FIRE_ID,frac_int)
+    sprintf("%s/feature_layers/%spct/%s_sample_points_%spct_burn_date.gpkg",
+            DATA_DIR,frac_int,FIRE_ID,frac_int)
   )
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(severity_raster)) %>% 
@@ -124,7 +128,6 @@ if(OS == "Linux"){
   DATA_DIR <- "data/"
 }
 
-
 index_name <- "NDMI"
 burn_severity_index <- "dNBR"
 pct_cutoff <- 0.5
@@ -147,12 +150,12 @@ fire_perimeters <- vect(
 )
 
 ## Build global model data table ----
-top20_fires <- fire_perimeters %>%
+topN_fires <- fire_perimeters %>%
+  filter(tst_year >= 2017) %>% 
   arrange(desc(farea)) %>% 
   slice_head(n = 25) 
 
-TEST_ID <- top20_fires$fireid
-TEST_ID <- c(14211,14664,10792,17548)
+TEST_ID <- topN_fires$fireid
 
 if (length(TEST_ID)>0){
   subset_lut <- filter(processing_lut, fireid %in% TEST_ID)
@@ -162,15 +165,35 @@ data_list <- subset_lut %>%
   split(seq(nrow(.))) %>%
   map(~ load_data(.x, burn_severity_index, frac_int,
                   return_df_only = TRUE)) %>% 
-  compact() 
+  compact()
 
-final_df <- do.call(rbind, data_list)
+bind_fill <- function(dfs) {
+  all_cols <- unique(unlist(lapply(dfs, colnames)))  # all unique column names
+  dfs_filled <- lapply(dfs, function(df) {
+    missing <- setdiff(all_cols, names(df))       # columns that are missing
+    df[missing] <- NA                              # add missing columns filled with NA
+    df[all_cols]                                    # reorder to consistent column order
+  })
+  do.call(rbind, dfs_filled)
+}
 
-# Filter out data for burned points (threshold from Kolden et al. 2012)
-final_df_subset_burnclass <- final_df %>% 
-  mutate(dnbr = dnbr) %>% 
-  filter(dnbr >= 0.245) %>% 
-  mutate(fireid = as.factor(fireid))
+# Apply the function
+final_df <- bind_fill(data_list)
+# final_df <- do.call(rbind, data_list)
+
+final_df$burn_doy <- yday(final_df$burn_date)
+
+# subset of upper 75th percentile
+df_subset <- final_df %>% 
+  group_by(fireid) %>% 
+  # filter(dnbr >= 0.245) %>%  # (threshold from Kolden et al. 2012)
+  filter(quantile(dnbr, 0.75,na.rm=T)<dnbr) %>% 
+  mutate(fireid = as.factor(fireid),
+         # scale predictors
+         burn_doy = burn_doy / 366,
+         elevation = sqrt(elevation),
+         across(contains("lst"), ~ as.numeric(scale(.)))) %>% 
+  ungroup()
 
 # Load individual fire data
 FIRE_ID <- 14664
@@ -306,7 +329,7 @@ pdnbr <- ggplot(data = final_df) +
                      fill = ifelse(dnbr >= 0.245,
                                    "burned", "unburned")),
                  binwidth = .005) +
-  facet_wrap(~fireid) +
+  # facet_wrap(~fireid) +
   labs(x = "Burn Severity (dNBR)",
        fill = "",
        title = "Histograms per fire scar") +
@@ -326,10 +349,55 @@ fig <- pdnbr / pdgemi +
   plot_layout(axis_titles = "collect")
 
 if (SAVE_FIGURES){
-  ggsave2(fig,filename = "figures/Histograms_dnbrvs_dgemi_all_scars.png",
+  ggsave2(fig,filename = "figures/Histograms_dnbrvs_dgemi_top25_scars.png",
+          width = 12,height = 10,bg = "white")
+}
+
+# overall distribution
+ggplot(data = final_df) +
+  geom_density(aes(x = dnbr),color = 'tomato', fill = 'salmon',alpha = 0.7) +
+  labs(x = "Burn Severity (dNBR)",
+       title = "dNBR distribution of the 25 largest tundra fires") +
+  theme_cowplot()
+
+if (SAVE_FIGURES){
+  ggsave2(filename = "figures/dNBR_distribution_top25_scars.png",
           width = 8,height = 6,bg = "white")
 }
 
+## Distributions of cumulative NDMI and NDVI ----
+plot_distributions <- function(data, varname, cmap){
+  df_plot <- data %>%
+    select(contains(paste0(varname,"."))) %>%
+    pivot_longer(cols = everything(), names_to = "var", values_to = "value") %>% 
+    mutate(var_day = as.integer(str_extract(var, "\\d+$"))) %>%
+    mutate(var = fct_reorder(var, var_day))
+  
+  xlims <- if(varname == "NDMI") c(-5,10) else c(0,15)
+  
+  ggplot(df_plot,aes(x = value, group = var_day)) +
+    geom_density(aes(fill = var_day),alpha = 0.2, size = 0.1) +  
+    scale_fill_continuous_sequential(palette = cmap) +
+    xlim(xlims) +
+    theme_cowplot() +
+    labs(x = sprintf("Cumulative %s",varname), y = "Density",
+         fill = "Sum period (days before fire)",
+         title = sprintf("Distribution of %s for each day pre-fire",varname))
+}
+
+(fig <- plot_distributions(df_subset,"NDMI",cmap = "Mako"))
+
+if (SAVE_FIGURES){
+  ggsave2(fig ,filename = "figures/cumNDMI_distribution_top25_scars.png",
+          width = 6,height = 8,bg = "white")
+}
+
+(fig <- plot_distributions(df_subset,"NDVI",cmap = "GreenYellow"))
+
+if (SAVE_FIGURES){
+  ggsave2(fig ,filename = "figures/cumNDVI_distribution_top25_scars.png",
+          width = 6,height = 8,bg = "white")
+}
 
 ### Check spatial autocorrelation ----
 # library(spatstat)
@@ -420,27 +488,24 @@ ggplot(df_all, aes(x = lst_pred_d_prefire_7 ,
 burn_severity_index <- "dnbr"
 
 ## a. mixed model ----
-ndmi_prefire_cols <- grep("^NDMI.d_prefire_", names(final_df), value = TRUE)
-ndvi_prefire_cols <- grep("^NDVI.d_prefire_", names(final_df), value = TRUE)
-
-preds <- c(ndmi_prefire_cols, ndvi_prefire_cols)
 
 # Function to run lm and extract statistics
 run_lm_day <- function(day,y_var, data) {
   ndvi_var <- paste0("NDVI.d_prefire_", day)
   ndmi_var <- paste0("NDMI.d_prefire_", day)
+  lst_var <- paste0("cumsum_lst_d_prefire_", day)
   
-  predictors <- c(ndvi_var, ndmi_var, "elevation", "slope", "northness", "eastness", "doy")
+  predictors <- c(ndvi_var, ndmi_var,lst_var, "elevation", "slope", "northness", "eastness", "burn_doy")
   fixed_effects <- paste(predictors, collapse = " + ")
   formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
   
   model <- lmer(formula, data = data, REML = FALSE)
   model_summary <- summary(model)
   
-  reduced_formula <- as.formula(paste(y_var, "~", 1, "+ (1 | fireid)"))
-  reduced.lmer <- lmer(reduced_formula,data = data, REML = FALSE)
-  
-  anova(reduced.lmer, model)  # the two models are not significantly different
+  # reduced_formula <- as.formula(paste(y_var, "~", 1, "+ (1 | fireid)"))
+  # reduced.lmer <- lmer(reduced_formula,data = data, REML = FALSE)
+  # 
+  # anova(reduced.lmer, model)  # the two models are not significantly different
   
   # Extract fixed effect estimates
   coefs <- fixef(model)  # Named vector
@@ -457,26 +522,34 @@ run_lm_day <- function(day,y_var, data) {
     bind_cols(
       as_tibble_row(
         setNames(as.list(coefs),
-                 c("Intercept","NDVI", "NDMI",
+                 c("Intercept","NDVI", "NDMI","LST",
                    "elevation", "slope", "northness", "eastness",
                    "doy")))
     )
 }
 
 # only model dNBR above burned threshold
-model_results_by_day <- map_dfr(c(1:40), ~ run_lm_day(y_var = burn_severity_index,
-                                                      day = .x,
-                                                      data = final_df_subset_burnclass))
+model_results_by_day <- pblapply(1:40, function(day) {
+  run_lm_day(y_var = burn_severity_index,
+             day = day,
+             data = final_df)
+}) %>%
+  bind_rows()
+
+# model_results_by_day <- map_dfr(c(1:40), ~ run_lm_day(y_var = burn_severity_index,
+#                                                       day = .x,
+#                                                       data = df_subset))
 results <- model_results_by_day %>% arrange(days_before_fire)
 
-fig <- ggplot(results) + 
+(fig <- ggplot(results) + 
   geom_point(aes(x = days_before_fire, y = r_squared)) +
+  scale_x_reverse() +
   labs(x = "Days before fire", y = "R-squared",
        title = sprintf("Rsquared for %s",burn_severity_index)) + 
-  theme_cowplot()
+  theme_cowplot() )
 
 if (SAVE_FIGURES){
-  ggsave2(fig,filename = sprintf("figures/%s_all_R2_fullmod_burnedonly.png",burn_severity_index),
+  ggsave2(fig,filename = sprintf("figures/%s_top25_R2_fullmod.png",burn_severity_index),
           width = 8,height = 6,bg = "white")
 }
 
@@ -488,12 +561,13 @@ results %>%
     names_to = "coefficient", values_to = "values") %>% 
   ggplot() + 
   geom_point(aes(x = days_before_fire, y = values)) + 
+  scale_x_reverse() +
   labs(x = "Days before fire", y = "Effect size") +
   facet_wrap(~coefficient,scales="free",nrow = 2) + 
   theme_cowplot()
 
 if (SAVE_FIGURES){
-  ggsave2(filename = sprintf("figures/%s_effect_sizes_allmod.png",
+  ggsave2(filename = sprintf("figures/%s_effect_sizes_top25.png",
                              burn_severity_index),
           width = 10,height = 8,bg = "white")
 }
@@ -581,28 +655,22 @@ mc_result <- performance::multicollinearity(mod1)
 print(mc_result)
 
 
-## c. Bayesian implementation ----
-n_iter <- 4000
-n_thin <- ifelse(n_iter > 5000, 10, 1)
-
-run_brm <- function(day,y_var, data) {
+## c. INLA ----
+run_inla <- function(day,y_var, data) {
   ndvi_var <- paste0("NDVI.d_prefire_", day)
   ndmi_var <- paste0("NDMI.d_prefire_", day)
+  lst_var <- paste0("cumsum_lst_d_prefire_", day)
   
-  predictors <- c(ndvi_var, ndmi_var, "elevation", "slope", "northness", "eastness", "doy")
+  predictors <- c(ndvi_var, ndmi_var,lst_var, "elevation", "slope", "northness", "eastness", "burn_doy")
   fixed_effects <- paste(predictors, collapse = " + ")
-  formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
+  # formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
+  formula <- as.formula(paste0(y_var, " ~ ",fixed_effects, 
+                               " +  f(fireid, model = 'iid')")) 
   
-  model <- brm(
-    bf(formula),
-    family = gaussian(),
-    data = data,
-    chains = 4, 
-    iter = n_iter, 
-    thin = n_thin,
-    cores = 4, seed = 1234,
-    file = paste0(burn_severity_index,
-                  "full_model_d_prefire",day))
+  model  <- inla(formula, 
+                 family = "gaussian",
+                 data = data)
+  
   model_summary <- summary(model)
   
   coefs <- coef(model)
@@ -621,22 +689,49 @@ run_brm <- function(day,y_var, data) {
     )
 }
 
+library(ggregplot)
+Efxplot(model) + 
+  theme_cowplot()
+ggsave("figures/inla_10d_efxplot.png",width = 8, height = 8, bg = "white")
+# dNBR_model_sel <- INLAModelSel(y_var, predictors, "fireid", "iid", "gaussian", df_subset)
+# Finalcovar <- dNBR_model_sel$Removed[[length(dNBR_model_sel$Removed)]]
 
 
-## d. Random forest ----
+## d. brms ----
 y_var <- "dnbr"
 day <- 10
 ndvi_var <- paste0("NDVI.d_prefire_", day)
 ndmi_var <- paste0("NDMI.d_prefire_", day)
+lst_var <- paste0("cumsum_lst_d_prefire_", day)
 
 predictors <- c(ndvi_var, ndmi_var, "elevation", "slope", "northness", "eastness", "doy")
 fixed_effects <- paste(predictors, collapse = " + ")
 formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
 
+df_d10_subset <- final_df %>% 
+  group_by(fireid) %>% 
+  sample_frac(.05)
+
+tic()
 bay_qr_day10 <- brm(
   bf(formula, quantile = 0.75),
-  data = final_df,
-  family = asym_laplace()
+  data = df_d10_subset,
+  family = asym_laplace(),
+  chains = 4,
+  iter = 10000,
+  thin = 10,
+  cores = 4, seed = 1234
 )
+toc()
+
+
+model <- brm(
+  bf(formula),
+  family = gaussian(),
+  data = df_d10_subset,
+  chains = 4,
+  iter = 10000,
+  thin = 10,
+  cores = 4, seed = 1234)
 
 summary(bay_qr_day10)

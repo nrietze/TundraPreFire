@@ -7,7 +7,6 @@ library(tidyverse)
 library(cowplot)
 library(patchwork)
 library(lubridate)
-print(getwd())
 
 set.seed(10)
 
@@ -89,13 +88,15 @@ FALSE_FIRES_ID <- c(23633,21461,15231,15970,17473,13223,
                     14071,12145,10168,24037,13712)
 
 topN_fires <- fire_perimeters %>%
+  filter(tst_year >= 2017) %>% 
   arrange(desc(farea)) %>% 
   slice_head(n = 25)
 
 # TEST_ID <- c(14211,14664,10792,17548) # fire ID for part of the large fire scar
 TEST_ID <- topN_fires$fireid
+# TEST_ID <- 0
 
-if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
+if (length(TEST_ID) > 1){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
 dem_lut <- read.csv(paste0(TABLE_DIR,"dem_fire_perim_intersect.csv")) # DEM tiles
 
@@ -115,7 +116,7 @@ for(i in 1:nrow(final_lut)) {
     next
   }
   
-  print(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
+  cat(sprintf("Extracting data for fire %s in UTM tile: %s",FIRE_ID,UTM_TILE_ID))
   
   # Load optimal burn severity raster
   fname_optimal_severity_raster <- optimality_lut %>% 
@@ -124,7 +125,7 @@ for(i in 1:nrow(final_lut)) {
     pull(fname_severity_raster)
   
   if (length(fname_optimal_severity_raster) ==0){
-    cat("No burn severity raster stored for this fire scar yet.")
+    cat("No burn severity raster stored for this fire scar yet. \n")
     next
   }
   
@@ -138,6 +139,7 @@ for(i in 1:nrow(final_lut)) {
   # Check if fire extent is above Arctic circle
   min_lat <- ext(project(selected_fire_perimeter, "EPSG:4326"))[3]
   is_above_arctic <- min_lat > 66.56
+  is_above_arctic <- FALSE
   
   # Prepare Descals et al. (2022) burned area maps if available
   if (is_above_arctic){
@@ -220,12 +222,12 @@ for(i in 1:nrow(final_lut)) {
     mask(fire_perimeter_buffered, updatevalue = NA) %>% 
     crop(fire_perimeter_buffered) * 1000
   
-  fname_sample_points <- sprintf("~/data/feature_layers/%s_sample_points_%spct.gpkg",
-                                 FIRE_ID,frac_int)
+  fname_sample_points <- sprintf("~/data/feature_layers/%spct/%s_sample_points_%spct.gpkg",
+                                 frac_int,FIRE_ID,frac_int)
   
   # Sample points only when gpkg file doens't exist
   if (!file.exists(fname_sample_points) || OVERWRITE_DATA){
-    print("Creating random point sample... \n")
+    cat("Creating random point sample... \n")
     
     # Set dNBR bin size for sampling (20 if dNBR * 1000)
     binwidth <- 20
@@ -269,7 +271,7 @@ for(i in 1:nrow(final_lut)) {
              layer = "sample_points", delete_layer = TRUE)
   }
   
-  print("Random point GPKG already exists, continue. \n")
+  cat("Random point GPKG already exists, continue. \n")
 
 }
 

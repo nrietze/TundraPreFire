@@ -3,7 +3,6 @@ import os
 import sys
 import platform
 import datetime
-import multiprocessing
 from glob import glob
 from tqdm import tqdm
 import numpy as np
@@ -15,9 +14,6 @@ import xarray as xr
 import rioxarray as rxr
 import rasterio as rio
 from rasterio.mask import mask
-from shapely.geometry import mapping
-from dateutil.relativedelta import relativedelta
-from joblib import Parallel, delayed
 
 # %% 0. Configure functions
 def calculate_clear_pixel_percentage(data,
@@ -117,18 +113,18 @@ if __name__ == "__main__":
     # Load VIIRS perimeters in Siberian tundra
     FN_VIIRS_CAVM_PERIMETERS = os.path.join(DATA_FOLDER,
                                             "feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
-    fire_polygons = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
     
-    # Only process HLS data for fires starting in 2017
-    # TEST_ID = [14211,14664,10792,17548]
-    TEST_ID = []
-    if TEST_ID:
-        fire_polygons = fire_polygons.loc[np.isin(fire_polygons.fireid,TEST_ID)]
+    fire_polygons = gpd.read_file(FN_VIIRS_CAVM_PERIMETERS)
+    fire_polygons = fire_polygons.loc[(fire_polygons.tst_year>=2017)]
+    
+    USE_TOP_25 = True
+    if USE_TOP_25:
+        fire_polygons = fire_polygons.sort_values("farea",ascending=False).head(25)
+    
+        print(f"Using top {len(fire_polygons)} largest fire polygons. \n")
 
     FALSE_FIRES_ID = [23633,21461,15231,15970,17473,13223,
                      14071,12145,10168,24037,13712]
-    
-    fire_polygons = fire_polygons.loc[(fire_polygons.tst_year>=2017)]
     
     # Create output tables
     output_lut = pd.DataFrame(columns=[
@@ -241,8 +237,6 @@ if __name__ == "__main__":
             
             output_table = pd.concat([df_temp,output_table])
 
-    print(output_lut.fireid)
-    
     # Write to ouput tables
     output_lut.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_LUT.csv"),sep=";")      
     output_table.to_csv(os.path.join(DATA_FOLDER,"tables","optimality_overview_table.csv"),sep=";")        

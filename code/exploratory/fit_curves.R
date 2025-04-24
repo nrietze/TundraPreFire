@@ -4,9 +4,12 @@ library(readr)
 library(spatstat.utils)
 library(tidyverse)
 library(data.table)
-library(future.apply)
+library(pbapply)
 library(lubridate)
+library(tictoc)
 set.seed(10)
+
+plan(multisession, workers = 32)  # Parallel processing setup
 
 # 0. Set up functions ----
 # ========================.
@@ -56,7 +59,8 @@ load_data <- function(fire_attrs,severity_index,frac_int){
   # Load sample points (with associated burn dates)
   fname_sample_points <-  paste0(
     DATA_DIR,
-    sprintf("feature_layers/%s_sample_points_%spct_burn_date.gpkg",FIRE_ID,frac_int)
+    sprintf("feature_layers/%spct/%s_sample_points_%spct_burn_date.gpkg",
+            frac_int,FIRE_ID,frac_int)
   )
   sample_points <- vect(fname_sample_points) %>% 
     project(crs(severity_raster)) %>% 
@@ -116,7 +120,11 @@ process_group <- function(dt, index_name) {
   x <- dt$doy
   y <- dt[[index_name]]
   
-  result <- model_index_smoothedspline(x, y, dt, spar = 0.5)
+  if ("LST" %in% index_name){
+    result <- model_LST_polynomial(x, y, dt)
+  } else {
+    result <- model_index_smoothedspline(x, y, dt, spar = 0.5)
+  }
   
   return(result)
 }
@@ -148,7 +156,8 @@ model_LST_polynomial <- function(x,y,full_data) {
       names_from = days_before_fire,
       values_from = c(cumsum_lst,lst_pred),
       names_prefix = "d_prefire_"
-    ) 
+    ) %>% 
+    mutate(ObservationID = full_data$ObservationID[1])
   
   return(out_data)
 }
@@ -174,12 +183,12 @@ fire_perimeters <- vect(
   paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 )
 
-top20_fires <- fire_perimeters %>%
+topN_fires <- fire_perimeters %>%
+  filter(tst_year >= 2017) %>% 
   arrange(desc(farea)) %>% 
-  slice_head(n = 20) 
+  slice_head(n = 25) 
 
-TEST_ID <- top20_fires$fireid
-TEST_ID <- c(14664,10792,17548) # fire ID for part of the large fire scar
+TEST_ID <- topN_fires$fireid
 
 # Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
@@ -223,13 +232,11 @@ for (FIRE_ID in final_lut$fireid){
     # convert to data table for faster processing
     setDT(df_filtered) 
     
-    plan(multisession, workers = 32)  # Parallel processing setup
-      
     df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDMI) & .N >= 4, ]
       
     # Group by ObservationID and apply function in parallel
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- future_lapply(df_list, process_group, index_name = "DailyMeanNDMI")
+    results <- pblapply(df_list, process_group, index_name = "DailyMeanNDMI")
     
     # unlist the results sublists to merge into data.table
     results_clean <- lapply(results, function(dt) {
@@ -248,8 +255,8 @@ for (FIRE_ID in final_lut$fireid){
                                                             if (.N >= 4) .SD,
                                                             by = ObservationID] 
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- future_lapply(df_list, process_group, index_name = "DailyMeanNDVI")
-    
+    results <- pblapply(df_list, process_group, index_name = "DailyMeanNDVI")
+
     results_clean <- lapply(results, function(dt) {
       as.data.table(lapply(dt, function(col) {
         if (is.list(col)) unlist(col, recursive = FALSE) else col
@@ -274,15 +281,24 @@ for (FIRE_ID in final_lut$fireid){
     
     # 3. Fit splines to LST ----
     # ==========================.
+    cat("Fitting polynomials to LST... \n")
     
     # Apply spline to each time series point
-    lst_smooth <- df_filtered %>%
-      as_tibble() %>% 
-      filter(!is.na(doy),
-             ) %>% 
-      group_by(ObservationID) %>% 
-      filter(sum(!is.na(LST)) >= 2) %>%  # Only keep groups with >= 2 non-NA LST values
-      group_modify(~ model_LST_polynomial(.x$doy, .x$LST, .x))
+    df_filtered_nonan <- df_filtered[!is.na(LST) & .N >= 4, ]
+    
+    # Group by ObservationID and apply function in parallel
+    df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
+    results <- pblapply(df_list, process_group, index_name = "LST")
+    
+    # unlist the results sublists to merge into data.table
+    results_clean <- lapply(results, function(dt) {
+      as.data.table(lapply(dt, function(col) {
+        if (is.list(col)) unlist(col, recursive = FALSE) else col
+      }))
+    })
+    
+    # merge results into  data.table
+    lst_smooth <- rbindlist(results_clean, fill = TRUE)
     
     # Merge dataframes
     data_lst <- df_filtered %>% 
