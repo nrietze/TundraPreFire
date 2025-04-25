@@ -191,29 +191,9 @@ df_subset <- final_df %>%
   mutate(fireid = as.factor(fireid),
          # scale predictors
          burn_doy = burn_doy / 366,
-         elevation = sqrt(elevation),
+         elevation = scale(elevation)[,1],
          across(contains("lst"), ~ as.numeric(scale(.)))) %>% 
   ungroup()
-
-# Load individual fire data
-FIRE_ID <- 14664
-if (!is.na(FIRE_ID)){
-  subset_lut <- filter(processing_lut, fireid == FIRE_ID)
-  
-  data_list <- load_data(subset_lut, burn_severity_index = "dNBR",
-                         frac_int)
-  
-  final_df_14664 <- data_list[[1]]
-  severity_raster_sample <- data_list[[2]]
-  sample_points <- data_list[[3]]
-  cropped_severity_raster <- data_list[[4]]
-  selected_fire_perimeter <- data_list[[5]]
-  
-  final_df_14664_burnclass <- final_df_14664 %>% 
-    filter(dnbr >= 0.1)
-  
-  rm(data_list)
-}
 
 # 2. Descriptive statistics ----
 # ==============================.
@@ -573,6 +553,26 @@ if (SAVE_FIGURES){
 }
 
 ## b. Run linear model on individual site  ----
+# Load individual fire data
+FIRE_ID <- 14664
+if (!is.na(FIRE_ID)){
+  subset_lut <- filter(processing_lut, fireid == FIRE_ID)
+  
+  data_list <- load_data(subset_lut, burn_severity_index = "dNBR",
+                         frac_int)
+  
+  final_df_14664 <- data_list[[1]]
+  severity_raster_sample <- data_list[[2]]
+  sample_points <- data_list[[3]]
+  cropped_severity_raster <- data_list[[4]]
+  selected_fire_perimeter <- data_list[[5]]
+  
+  final_df_14664_burnclass <- final_df_14664 %>% 
+    filter(dnbr >= 0.1)
+  
+  rm(data_list)
+}
+
 run_lm <- function(day,y_var, data) {
   ndvi_var <- paste0("NDVI.d_prefire_", day)
   ndmi_var <- paste0("NDMI.d_prefire_", day)
@@ -708,30 +708,32 @@ predictors <- c(ndvi_var, ndmi_var, "elevation", "slope", "northness", "eastness
 fixed_effects <- paste(predictors, collapse = " + ")
 formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
 
-df_d10_subset <- final_df %>% 
+df_d10_subset <- df_subset %>% 
   group_by(fireid) %>% 
   sample_frac(.05)
 
+# tic()
+# bay_qr_day10 <- brm(
+#   bf(formula, quantile = 0.75),
+#   data = df_d10_subset,
+#   family = asym_laplace(),
+#   chains = 4,
+#   iter = 10000,
+#   thin = 10,
+#   cores = 4, seed = 1234
+# )
+# toc()
+
 tic()
-bay_qr_day10 <- brm(
-  bf(formula, quantile = 0.75),
-  data = df_d10_subset,
-  family = asym_laplace(),
-  chains = 4,
-  iter = 10000,
-  thin = 10,
-  cores = 4, seed = 1234
-)
-toc()
-
-
 model <- brm(
   bf(formula),
-  family = gaussian(),
+  family = "gaussian",
   data = df_d10_subset,
   chains = 4,
   iter = 10000,
   thin = 10,
-  cores = 4, seed = 1234)
+  cores = 4, 
+  seed = 1234)
+toc()
 
-summary(bay_qr_day10)
+summary(model)
