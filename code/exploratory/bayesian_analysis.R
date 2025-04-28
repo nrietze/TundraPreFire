@@ -128,11 +128,12 @@ if (length(TEST_ID)>0){
 }
 
 # Load model dataframe
-fname_model_data <- sprintf("~/data/tables/model_dataframes/%spct/final_model_dataframe.csv",frac_int)
+fname_model_data <-  paste0(
+  TABLE_DIR,sprintf("model_dataframes/%spct/final_model_dataframe.csv",frac_int))
 
 if (file.exists(fname_model_data)){
   
-  final_df <- read_csv2("~/data/tables/model_dataframes/1pct/final_model_dataframe.csv")
+  final_df <- read_csv2(fname_model_data)
   
 } else {
   data_list <- subset_lut %>%
@@ -212,9 +213,10 @@ if (TEST_RUN_SINGELDAY){
   fixed_effects <- paste(predictors, collapse = " + ")
   formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
   
-  df_test_subset <- df_subset %>% 
-    group_by(fireid) %>% 
-    sample_frac(.01)
+  df_test_subset <- df_subset
+  # df_test_subset <- df_subset %>% 
+  #   group_by(fireid) %>% 
+  #   sample_frac(.01)
   
   n_days <- 30
   
@@ -234,7 +236,7 @@ if (TEST_RUN_SINGELDAY){
     df_list_by_day[[day]] <- df_day
   }
   
-  plan(multisession, workers = 30)
+  plan(multisession, workers = 8)
   
   tic()
   all_models <- brm_multiple(
@@ -249,7 +251,7 @@ if (TEST_RUN_SINGELDAY){
     combine = FALSE
   )
   toc()
-  
+  saveRDS(all_models, file="data/tables/all_models_fuldata.RData")
   
   # tic()
   # model <- brm(
