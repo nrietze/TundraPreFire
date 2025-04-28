@@ -6,6 +6,7 @@ library(brms)
 library(tidybayes)
 library(broom)
 library(tictoc)
+library(future)
 library(gt)
 set.seed(10)
 
@@ -75,36 +76,6 @@ load_data <- function(fire_attrs,burn_severity_index,frac_int,
               sample_points,
               cropped_severity_raster,
               selected_fire_perimeter))
-}
-
-PlotSeverityMapHist <- function(cropped_severity_raster){
-  burn_severity_index <- names(cropped_severity_raster)
-  SCALE_FACTOR <- ifelse(burn_severity_index == "dNBR", 1000, 1)
-  
-  binwidth <- .02 * SCALE_FACTOR
-  
-  # Plot dNBR map
-  p1 <- ggplot() +
-    geom_spatraster(data = cropped_severity_raster*SCALE_FACTOR) +
-    scale_fill_viridis_c(option = "inferno",
-                         na.value = "white",
-                         name = burn_severity_index) +
-    theme_cowplot()
-  
-  # Plot histogram for this map
-  xvar <- as.symbol(burn_severity_index)
-  p2 <- ggplot(data = cropped_severity_raster, aes(x = !!xvar)) +
-    geom_histogram(binwidth = binwidth, color = "black", fill = "indianred1") +
-    xlim(c(-.5*SCALE_FACTOR,1*SCALE_FACTOR)) +
-    labs(
-      title = sprintf("Histogram of %s",burn_severity_index),
-      x = sprintf("%s Values",burn_severity_index),
-      y = "Frequency"
-    ) +
-    theme_cowplot()
-  
-  pg <- p1 + p2
-  return(pg)
 }
 
 # 1. Configure and load stuff ----
@@ -204,7 +175,7 @@ df_subset <- final_df %>%
 
 y_var <- "dnbr"
 
-TEST_RUN_SINGELDAY <- TRUE
+TEST_RUN_SINGELDAY <- FALSE
 
 # Test run single-day model
 if (TEST_RUN_SINGELDAY){
@@ -219,79 +190,66 @@ if (TEST_RUN_SINGELDAY){
   
   df_d10_subset <- final_df %>% 
     group_by(fireid) %>% 
-    sample_frac(.05)
+    sample_frac(.01)
   
   tic()
-  bay_qr_day10 <- brm(
-    bf(formula, quantile = 0.75),
+  model <- brm(
+    bf(formula),
+    family = "gaussian",
     data = df_d10_subset,
-    family = asym_laplace(),
-    prior = c(
-      set_prior("normal(0, 1)", class = "b"), # expected coefficient range is small
-      set_prior("normal(0, 1)", class = "Intercept"), # expected intercepts
-      set_prior("exponential(1)", class = "sigma")  # scale parameter
-    ),
+    prior=set_prior("normal(0,1)", class="b"), # we expect small coefficients for slopes (b)
     chains = 4,
     iter = 10000,
     thin = 10,
-    cores = 4, seed = 1234,
-    file = "data/models/brm_qreg_day10"
-  )
+    cores = 4,
+    seed = 1234)
   toc()
   
-  # tic()
-  # model <- brm(
-  #   bf(formula),
-  #   family = "gaussian",
-  #   data = df_d10_subset,
-  #   prior=set_prior("normal(0,1)", class="b"), # we expect small coefficients for slopes (b)
-  #   chains = 4,
-  #   iter = 10000,
-  #   thin = 10,
-  #   cores = 4, 
-  #   seed = 1234)
-  # toc()
+  
 } else{
   
   predictors <- c("NDVI", "NDMI","LST", "elevation", "slope", "northness", "eastness", "doy")
   fixed_effects <- paste(predictors, collapse = " + ")
   formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
   
-  df_subset <- final_df %>% 
+  df_test_subset <- df_subset %>% 
     group_by(fireid) %>% 
-    sample_frac(.05)
+    sample_frac(.01)
   
-  n_days <- 40
+  n_days <- 30
   
   df_list_by_day <- list()
   
   for (day in 1:n_days) {
-    ndvi_col <- paste0("NDVI_d_prefire_", day)
-    ndmi_col <- paste0("NDMI_d_prefire_", day)
+    ndvi_col <- paste0("NDVI.d_prefire_", day)
+    ndmi_col <- paste0("NDMI.d_prefire_", day)
     lst_col  <- paste0("cumsum_lst_d_prefire_", day)
     
-    df_day <- df[, c(ndvi_col, ndmi_col, lst_col,
-                     "elevation", "slope", "northness", "eastness", "doy","fireid")]
-    names(df_day) <- c(predictors,"fireid")
+    df_day <- df_test_subset[, c(ndvi_col, ndmi_col, lst_col,
+                                 "elevation", "slope", "northness", "eastness",
+                                 "doy","fireid","dnbr")]
+    names(df_day) <- c(predictors,"fireid","dnbr")
     
     # Add to list
     df_list_by_day[[day]] <- df_day
   }
   
+  plan(multisession, workers = 30)
+  
   tic()
   all_models <- brm_multiple(
-    bf(formula, quantile = 0.75),
+    bf(formula),
+    family = "gaussian",
     data = df_list_by_day,
-    family = asym_laplace(),
+    prior=set_prior("normal(0,1)", class="b"), # we expect small coefficients for slopes (b)
     chains = 4,
     iter = 10000,
     thin = 10,
-    cores = 4,
     seed = 1234,
-    combine = TRUE,
-    file = "data/models/brm_qreg_all_models"
+    combine = FALSE
   )
   toc()
+  
   
   # tic()
   # model <- brm(
@@ -311,7 +269,34 @@ if (TEST_RUN_SINGELDAY){
 
 # 3. Model assessment ----
 
+ggplot(all_models[[1]]) +
+  geom_histogram(aes(x=dnbr), color = "tomato",fill = "salmon") +
+  labs(x = "Burn severity (dNBR)",
+       title = "Distribution of dNBR for benchmark subset") +
+  theme_cowplot()
+
+ggsave("figures/hist_dNBR_benchmark.png",bg = "white",
+       width = 8, height = 8)
+
+
 ## a. Report posterior checks ----
+
+model_summaries <- lapply(all_models, function(model) {
+  list(
+    ess = bayestestR::effective_sample(model),
+    r2  = performance::r2_bayes(model)
+  )
+})
+
+# View effective sample sizes from model 1
+model_summaries[[1]]$ess %>% gt()
+
+# View R² for model 1
+r2s <- unlist(lapply(model_summaries, function(x) {x$r2$R2_Bayes_marginal}))
+
+plot(r2s)
+
+model <- all_models[[1]]
 
 # Report effective sample size
 bayestestR::effective_sample(model) %>% gt()
@@ -372,3 +357,62 @@ ranef(model)$fireid %>%
    theme(panel.grid = element_blank(),
          legend.position = "none") +
    labs(x = "Posterior estimates (standardized)", y = ""))
+
+## d. Plot all mode effects over time ----
+
+# Function to extract posteriors andfor each day and plot per predictor
+plot_predictor_effects <- function(models, days, predictors, palette = NULL) {
+  
+  predictor_regex <- paste0("b_", predictors, collapse = "|")
+  
+  # Extract draws for all predictors
+  all_effects <- map2_dfr(models, days, ~{
+    gather_draws(.x, !!sym(predictor_regex), regex = TRUE) %>%
+      mutate(day_before_fire = .y)
+  })
+  
+  # Clean predictor names
+  all_effects <- all_effects %>%
+    mutate(predictor = gsub("^b_", "", .variable))
+  
+  # Add significance flag (does 95% CI exclude 0?)
+  significance_flags <- all_effects %>%
+    group_by(day_before_fire, predictor) %>%
+    summarise(
+      lower = quantile(.value, 0.025),
+      upper = quantile(.value, 0.975),
+      sig = !(lower < 0 & upper > 0),
+      .groups = "drop"
+    )
+  
+  # Join with full draws
+  all_effects <- left_join(all_effects, significance_flags, by = c("day_before_fire", "predictor"))
+  
+  # Optional color palette
+  if (is.null(palette)) {
+    palette <- scales::hue_pal()(length(predictors))
+    names(palette) <- predictors
+  }
+  
+  # Plot with colored predictors
+  ggplot(all_effects, aes(x = day_before_fire, y = .value,
+                          fill = predictor, alpha = sig)) +
+    stat_halfeye(.width = 0.95, size = 1) +
+    geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+    scale_alpha_manual(values = c("TRUE" = 0.9, "FALSE" = 0.3)) +
+    scale_fill_manual(values = palette) +
+    labs(
+      x = "Days before fire",
+      y = "Posterior estimate",
+      fill = "Predictor",
+      alpha = "Significant"
+    ) +
+    scale_x_reverse() +
+    facet_wrap(~ predictor, scales = "free_y") +
+    theme_cowplot(14)
+}
+
+plot_predictor_effects(models = all_models, days = 1:30, predictors = predictors)
+
+ggsave("figures/dnbr_effect_sizes_brms_benchmark_10pct.png",bg = "white",
+       height = 10, width = 14)
