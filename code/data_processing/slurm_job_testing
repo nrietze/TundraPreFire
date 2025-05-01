@@ -1,16 +1,12 @@
 #...
-module load R
 module load mamba
 source activate lpdaac_vitals
 
-SLURM_ARRAY_TASK_ID=$1
-
 cd ~/TundraPreFire/
 
-echo 'Sampling points in scar.'
-Rscript code/data_processing/data_extraction_part1.R
+metrics='["NDMI","NDVI"]'
 
-echo 'Extracting burn date.'
-python code/data_processing/extract_fire_timing.py
+echo 'HLS preprocessing starting.'
+python code/data_processing/HLS_preprocessing.py tmp/task_test.txt "$metrics"
 
 echo 'finished'

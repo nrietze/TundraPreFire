@@ -58,7 +58,8 @@ def get_hls_tif_list(main_dir):
             dirs.remove('https:')
         
         if not dirs:
-            tif_files = [f for f in glob(os.path.join(root, '*.tif')) if "checkpoint" not in f]
+            tif_files = [f for f in glob(os.path.join(root, '*.tif')) 
+                         if "checkpoint" not in f and "optimality" not in f]
             
             hls_granule_tiffs.append(tif_files)
 
@@ -461,8 +462,6 @@ def joblib_hls_preprocessing(files: list,
                              out_folder: str,
                              OVERWRITE_DATA = False,
                              skip_source = None):
-    start_time = time.time()
-    
     pid = os.getpid()
     logger = setup_logger(f"logs/log_{pid}.txt")
 
@@ -485,8 +484,11 @@ def joblib_hls_preprocessing(files: list,
         # Check if current year data is not a pre-fire year for burn severity to skip NDMI and NDVI for pre-fire year
         UTM_TILE_ID = original_name.split('.')[2][1:]
         year = int(original_name.split('.')[3][:4])
-        
-        if not year in processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_ID, "tst_year"] and any(pattern in band_index for pattern in ["NDMI","NDVI"]):
+
+        if (any(pattern in band_index for pattern in ["NDMI", "NDVI"]) and
+            not np.isin(year,processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_ID, "tst_year"])):
+            
+            print(f"{year} {UTM_TILE_ID} has no fire in target year, skipping NDMI/NDVI.")
             continue
         
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
@@ -537,7 +539,6 @@ def joblib_hls_preprocessing(files: list,
                                     driver = 'COG')
         print("export done. \n")
     
-    logger.info("--- %s seconds ---" % (time.time() - start_time))
     return None
 
 
@@ -606,7 +607,6 @@ if __name__ == "__main__":
     
     # Constants
     MAX_TIMEDELTA = 31
-    OUTPUT_DIR = "/home/nrietz/scratch/raster/hls/"
     OUT_FOLDER = "/home/nrietz/scratch/raster/hls/processed/"
     bit_nums = [0, 1, 2, 3, 4]  # Bits to mask out
     num_workers = 4  # Adjust based on available CPUs
@@ -629,6 +629,8 @@ if __name__ == "__main__":
                 continue
             
             print(f"Processing UTM tile {UTM_TILE_NAME}, Year {year}")
+
+            hls_granules_paths_combined = []
 
             if any(pattern in band_index for pattern in ["NBR","GEMI"]):
                 curyear_fire_perimeters_in_utm = fire_perimeters_in_utm.loc[fire_perimeters_in_utm.tst_year == year]
@@ -663,17 +665,21 @@ if __name__ == "__main__":
                     with open(temp_tile_file, "w") as temp_file:
                         temp_file.write(UTM_TILE_NAME + "\n")
 
-                    subprocess.run(["bash", "code/data_processing/getHLS.sh", temp_tile_file, search_start_date_dynamic, search_end_date_dynamic, OUTPUT_DIR])
+                    subprocess.run(["bash", "code/data_processing/getHLS.sh", temp_tile_file, search_start_date_dynamic, search_end_date_dynamic, HLS_PARENT_PATH])
                     os.remove(temp_tile_file)
 
                 hls_granules_paths_pre = search_files_by_doy_range(
                     hls_granules_paths_tile, START_DATE_PRE, END_DATE_PRE)
 
                 hls_granules_paths_combined = hls_granules_paths_pre + hls_granules_paths_post
-    
+
             # Flatten granules into a list of (granule_path, metadata)
-            for granule in hls_granules_paths_combined:
-                granule_jobs.append((granule, UTM_TILE_NAME, year))
+            if hls_granules_paths_combined:
+                for granule in hls_granules_paths_combined:
+                    granule_jobs.append((granule, UTM_TILE_NAME, year))
+            else:
+                for granule in hls_granules_paths_tile:
+                    granule_jobs.append((granule, UTM_TILE_NAME, year))
 
     print(f"Total granules to process: {len(granule_jobs)}")
     
