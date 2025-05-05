@@ -16,7 +16,7 @@ cd ~/TundraPreFire/
 # Toggle processing steps:
 RUN_HLS_DOWNLOAD=0
 RUN_HLS_PROCESSING=1
-RUN_SEVERITY_SCRIPT=1
+RUN_SEVERITY_SCRIPT=0
 
 # Set up files for parallel jobs:
 # ------

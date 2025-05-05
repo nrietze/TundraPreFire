@@ -54,6 +54,12 @@ def get_hls_tif_list(main_dir):
         if 'processed' in dirs:
             dirs.remove('processed')
 
+        if 'optimality_rasters' in dirs:
+            dirs.remove('optimality_rasters')
+
+        if 'severity_rasters' in dirs:
+            dirs.remove('severity_rasters')
+        
         if 'https' in dirs:
             dirs.remove('https:')
         
@@ -482,8 +488,11 @@ def joblib_hls_preprocessing(files: list,
             continue
 
         # Check if current year data is not a pre-fire year for burn severity to skip NDMI and NDVI for pre-fire year
-        UTM_TILE_ID = original_name.split('.')[2][1:]
-        year = int(original_name.split('.')[3][:4])
+        try:
+            UTM_TILE_ID = original_name.split('.')[2][1:]
+            year = int(original_name.split('.')[3][:4])
+        except:
+            print(original_name)
 
         if (any(pattern in band_index for pattern in ["NDMI", "NDVI"]) and
             not np.isin(year,processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_ID, "tst_year"])):
@@ -592,8 +601,6 @@ if __name__ == "__main__":
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
 
-    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
-    
     # Load UTM tiles
     UTM_TILE_FILE = sys.argv[1]
     
@@ -613,6 +620,8 @@ if __name__ == "__main__":
     
     # Precompute all (Granule, UTM tilename, year) combinations in a list
     granule_jobs = []
+
+    hls_granules_paths = get_hls_tif_list(HLS_PARENT_PATH)
     
     for UTM_TILE_NAME in UTM_TILE_LIST:
         if UTM_TILE_NAME:
@@ -685,7 +694,6 @@ if __name__ == "__main__":
     
     # Set up final processing function
     def process_granule(granule, UTM_TILE_NAME, year):
-        granulename = os.path.basename(granule[0]).split(".")[3]
         joblib_hls_preprocessing(granule, band_index, bit_nums, 
                                  OUT_FOLDER, OVERWRITE_DATA, skip_source=None)
     

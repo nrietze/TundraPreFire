@@ -4,9 +4,11 @@ source activate lpdaac_vitals
 
 cd ~/TundraPreFire/
 
+SLURM_ARRAY_TASK_ID=$1
+
 metrics='["NDMI","NDVI"]'
 
 echo 'HLS preprocessing starting.'
-python code/data_processing/HLS_preprocessing.py tmp/task_test.txt "$metrics"
+python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
 
 echo 'finished'
