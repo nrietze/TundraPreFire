@@ -3,6 +3,7 @@ import subprocess
 import sys
 import platform
 import os
+import numpy as np
 
 # Set paths
 if platform.system() == "Windows":
@@ -34,7 +35,7 @@ with open(UTM_TILE_FILE, "r") as file:
 for TILE_ID in UTM_TILE_LIST:
     matching_row = lut_df[lut_df["opt_UTM_tile"] == TILE_ID]
     if not matching_row.empty:
-        years = matching_row["tst_year"].values
+        years = np.unique(matching_row["tst_year"].values)
 
         for year in years:
             # Format dynamic date range

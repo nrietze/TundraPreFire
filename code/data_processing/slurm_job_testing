@@ -1,14 +1,19 @@
-#...
-module load mamba
-source activate lpdaac_vitals
-
+#!/bin/bash -l
 cd ~/TundraPreFire/
 
-SLURM_ARRAY_TASK_ID=$1
+UTM_TILEID_FILE="code/data_processing/tileid_file.txt"
 
-metrics='["NDMI","NDVI"]'
+# Set number of tasks
+NUM_TASKS=20  # (number of --arrays)
 
-echo 'HLS preprocessing starting.'
-python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"
+for ((i=0; i<NUM_TASKS; i++)); do
+    > tmp/task_${i}.txt
+done
 
-echo 'finished'
+# Distribute lines round-robin to each task file
+i=0
+while IFS= read -r line; do
+    task_id=$(( i % NUM_TASKS ))
+    echo "$line" >> tmp/task_${task_id}.txt
+    ((i++))
+done < "$UTM_TILEID_FILE"

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from osgeo import gdal
+from tqdm import tqdm
 import xarray as xr
 import rioxarray as rxr
 import rasterio as rio
@@ -16,11 +17,15 @@ from shapely.geometry import mapping
 import datetime
 from dateutil.relativedelta import relativedelta
 from joblib import Parallel, delayed
+from scipy import stats
+import matplotlib.pyplot as plt
 
 os.chdir("code/data_processing")
 import HLS_preprocessing as hlsPrep
 from Optimality_function import Spectral_optimality
 os.chdir("../..")
+
+np.seterr(divide='ignore', invalid='ignore')
 
 # %% 0. Configure functions
 def get_raster_metadata(filepath):
@@ -92,6 +97,69 @@ def calculate_clear_pixel_percentage(data,
     
     return percentage_clear
 
+def calculate_correction_value(data, polygon:gpd.GeoDataFrame, buffer_distance_meters = 1000,PlotHist = False):
+    """Calculate mode of unburned dNBR in buffer zone around fire perimeter.
+
+    Args:
+        data: xr.DataArray of the dNBR raster.
+        polygon (gpd.GeoDataFrame): The polygon of the fire perimeter.
+        buffer_distance_meters: Buffer distance in metres, defaults to 1km.
+
+    Returns:
+        int: Correction dNBR value in the unburned buffer.
+    """
+    # Reproject polygon to match xarray CRS
+    crs = data.rio.crs
+    geometry = gpd.GeoSeries([polygon.geometry],crs = 3413)
+    original_geom = geometry.to_crs(crs).geometry.iloc[0]
+
+    #Create buffer "donut"
+    outer = original_geom.buffer(buffer_distance_meters)
+    donut_geom = outer.difference(original_geom)
+
+    donut = gpd.GeoSeries([donut_geom], crs=crs)
+    
+    # Clip the xarray to the polygon
+    clipped = data.rio.clip(donut, all_touched=True)
+    image = clipped.values
+    
+    # Flatten array for easier pixel counting
+    image_flat = image.flatten()
+
+    if len(image_flat) > 0:
+        mode_value = stats.mode(image_flat, nan_policy='omit').mode
+    else:
+        mode_value = 0
+
+    fname_figure = f"figures/dnbr_correction/dnbr_donut_combined_{polygon.fireid}.png"
+    
+    if PlotHist and not os.path.exists(fname_figure):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # plot 1: dNBR map with donut
+        data.plot(ax=ax1, cmap='viridis')
+        donut.plot(ax=ax1, facecolor='none', edgecolor='red', linewidth=2)
+        ax1.set_xlim(donut.total_bounds[[0, 2]])  # Set x extent
+        ax1.set_ylim(donut.total_bounds[[1, 3]])  # Set y extent
+        ax1.set_title("DNBR Map with Donut Buffer Overlay")
+        ax1.set_axis_off()
+        
+        # plot 1: dNBR histogram with mode as line
+        ax2.hist(image_flat, bins=50, color='skyblue', edgecolor='black', alpha=0.7)
+        ax2.axvline(mode_value, color='red', linestyle='dashed', linewidth=2, label=f"Mode: {mode_value:.2f}")
+        ax2.set_title("Histogram of DNBR Values in Donut Buffer")
+        ax2.set_xlabel("DNBR Value")
+        ax2.set_ylabel("Frequency")
+        ax2.legend()
+        ax2.grid(True)
+        
+        # --- Save the combined figure ---
+        plt.tight_layout()
+        plt.savefig(fname_figure, dpi=300)
+        plt.close()
+
+    return mode_value
+
 def time_index_from_filenames(files):
     '''
     Helper function to create a pandas DatetimeIndex
@@ -131,13 +199,34 @@ def calculate_severity_metrics(gemi_prefire_composite,
                                polygon:gpd.GeoDataFrame,
                                MIN_VALID_PERCENTAGE:int,
                                OUT_DIR=None):
+
+    buffer_distance_meters = 2000
     
     for index_name in index_names:
+        out_name = os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{date_postfire}.tif")
+        
+        # Check if file exists, if yes skip processing
+        SEVERITY_FILE_CHECK = os.path.exists(out_name)
+
+        if SEVERITY_FILE_CHECK:
+            print(f"{index_name} file already exists and will not be overwritten. \n")
+            continue
+
         print(f"Calculating {index_name}.")
+        
         if index_name == "dNBR":
             # Calculate dNBR (pre - post fire)
             final_index = nbr_prefire_composite - nbr_postfire_composite
+
+        elif index_name == "dNBR_corr":
+            # Calculate dNBR (pre - post fire)
+            dnbr = nbr_prefire_composite - nbr_postfire_composite
+
+            # calculate correction value (mode of unburned dNBR surrounding fire scar)
+            mode_value = calculate_correction_value(dnbr, polygon,PlotHist = True,buffer_distance_meters = buffer_distance_meters)
             
+            final_index = dnbr - mode_value
+        
         elif index_name == "dGEMI":
             # Calculate dGEMI (pre - post fire)
             final_index = gemi_prefire_composite - gemi_postfire_composite
@@ -145,13 +234,26 @@ def calculate_severity_metrics(gemi_prefire_composite,
         elif index_name == "RdNBR":
             # Calculate RdNBR (pre - post fire)
             dnbr = nbr_prefire_composite - nbr_postfire_composite
+
+            with np.errstate(divide='ignore'):
+                final_index = dnbr / np.sqrt(abs(nbr_prefire_composite))
+
+        elif index_name == "RdNBR_corr":
+            # Calculate RdNBR (pre - post fire)
+            dnbr = nbr_prefire_composite - nbr_postfire_composite
             
-            final_index = dnbr / np.sqrt(abs(nbr_prefire_composite))
-            
+            # calculate correction value (mode of unburned dNBR surrounding fire scar)
+            mode_value = calculate_correction_value(dnbr, polygon,buffer_distance_meters = buffer_distance_meters)
+
+            with np.errstate(divide='ignore'):
+                final_index = (dnbr - mode_value) / np.sqrt(abs(nbr_prefire_composite))
+        
         elif index_name == "RBR":
             # Calculate relativized burn ratio (pre - post fire)
             dnbr = nbr_prefire_composite - nbr_postfire_composite
-            final_index = dnbr / (nbr_prefire_composite + 1.001)
+            
+            with np.errstate(divide='ignore'):
+                final_index = dnbr / (nbr_prefire_composite + 1.001)
 
         # Exclude infinite values
         final_index = xr.where(final_index != np.inf, final_index, np.nan, keep_attrs=True)
@@ -163,7 +265,6 @@ def calculate_severity_metrics(gemi_prefire_composite,
         clear_percentage = calculate_clear_pixel_percentage(final_index,polygon=polygon)
         
         if clear_percentage > MIN_VALID_PERCENTAGE and OUT_DIR is not None:
-            out_name = os.path.join(OUT_DIR, f"{index_name}_{utm_tileid}_{date_postfire}.tif")
             # Export as Cloud Optimized GeoTIFF
             final_index.rio.to_raster(raster_path=out_name, driver="COG")
         else:
@@ -179,7 +280,7 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                                   OVERWRTIE_DATA = False):
 
     # List of severity indices that are calculated
-    index_names = ["dNBR","dGEMI","RdNBR","RBR"]
+    index_names = ["dNBR","dNBR_corr","dGEMI","RdNBR","RdNBR_corr","RBR"]
 
     # extract pattern to search for in existing HLS files
     search_index_names = ["NBR","GEMI"]
@@ -207,8 +308,8 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
         print(f"processing data for fire perimeter {perimeter.fireid} in {year} (UTM tile {utm_tileid}). \n")
         
         # Create list of NBR and GEMI files for that tile and year
-        nbr_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}*NBR.tif"))
-        gemi_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}*GEMI.tif"))
+        nbr_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}.{year}*NBR.tif")) +                     glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}.{year-1}*NBR.tif"))
+        gemi_files = glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}.{year}*GEMI.tif")) +  glob(os.path.join(PROCESSED_HLS_DIR,f"*{utm_tileid}.{year-1}*GEMI.tif"))
         
         # Create list of HLS NIR and SWIR files
         nir1_files_lsat = glob(os.path.join(HLS_PARENT_PATH,"**",f"HLS.L30.*{utm_tileid}*B05.tif"),recursive=True) #Landsat NIR1

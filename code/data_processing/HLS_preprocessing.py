@@ -17,8 +17,10 @@ import sys
 import ast
 import re
 from glob import glob
+from tqdm import tqdm
 import time
 import logging
+import warnings
 import datetime
 import multiprocessing
 import subprocess
@@ -35,6 +37,8 @@ import rioxarray as rxr
 from pyproj import CRS
 
 from skimage.filters import threshold_multiotsu
+
+np.seterr(divide='ignore', invalid='ignore')
 
 # %% Define user functions
 def setup_logger(log_filename):
@@ -248,8 +252,7 @@ def calc_index(files: list,
                              band_dict = hls_band_dict,
                              region = region,
                              chunk_size = chunk_size)
-        with np.errstate(divide='ignore'): #to ignore divide by zero
-            spectral_index = multispectral.ndmi(nir, swir1)
+        spectral_index = multispectral.ndmi(nir, swir1)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -269,8 +272,7 @@ def calc_index(files: list,
                            region = region,
                            chunk_size = chunk_size)
         
-        with np.errstate(divide='ignore'): #to ignore divide by zero
-            spectral_index = multispectral.ndvi(nir, red)
+        spectral_index = multispectral.ndvi(nir, red)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -297,7 +299,8 @@ def calc_index(files: list,
         
         spectral_index = nir.copy()
         
-        with np.errstate(divide='ignore'): #to ignore divide by zero
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
             spectral_index_data = (nir - (swir1 - swir2)) / (nir + (swir1 - swir2))
         
         # Replace the dummy xarray.DataArray data with the new spectral index data
@@ -322,8 +325,7 @@ def calc_index(files: list,
                              chunk_size = chunk_size)
         
         # spectral_index = nir.copy()
-        with np.errstate(divide='ignore'): #to ignore divide by zero
-            spectral_index = multispectral.nbr(nir, swir2)
+        spectral_index = multispectral.nbr(nir, swir2)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -345,10 +347,10 @@ def calc_index(files: list,
         
         spectral_index = nir.copy()
         
-        with np.errstate(divide='ignore'): #to ignore divide by zero
-            term1 = (2 * (nir**2 - red**2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
             
-        with np.errstate(divide='ignore'): 
+            term1 = (2 * (nir**2 - red**2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)
             spectral_index_data = term1 * (1 - 0.25 * term1) - ((red - 0.125) / (1 - red))
         
         # Replace the dummy xarray.DataArray data with the new spectral index data
@@ -368,7 +370,7 @@ def calc_index(files: list,
     # Compute Water mask
     filename = f"{tile_name.split('v2.0')[0]}v2.0_watermask.tif"
     wm_path = os.path.join(out_folder,filename)
-    
+
     # Check if that tile's water mask exists
     if os.path.exists(wm_path):
         water_mask = rxr.open_rasterio(wm_path,
@@ -377,7 +379,6 @@ def calc_index(files: list,
                                        ).squeeze('band', drop=True
                                                  ).astype(bool)
     else:
-        
         # load spectral bands needed for NDWI
         nir = load_rasters(files, "NIR1",
                            band_dict = hls_band_dict,
@@ -390,7 +391,8 @@ def calc_index(files: list,
                              chunk_size = chunk_size)
         
         ndwi = nir.copy()
-        with np.errstate(divide='ignore'): #to ignore divide by zero
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
             ndwi.data = (green - nir) / (green + nir)
         
         # Exclude data outside valid value range
@@ -400,14 +402,19 @@ def calc_index(files: list,
         
         # Reproject if not EPSG conform
         if ndwi.rio.crs is not CRS.from_epsg(utm_epsg_code):
-            with np.errstate(divide='ignore'):
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
                 ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
                                             chunks=chunk_size)
             
         # Export NDWI as COG tiff
         ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI.tif"
         ndwi_path = os.path.join(out_folder,ndwi_filename)
-        ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
+        try:
+            ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
+        except:
+            print(ndwi_path)
+            ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
     
         # Apply Otsu's thresholding to NDWI
         hist_ndwi = da.histogram(ndwi, bins=2, range=[-1, 1])
@@ -422,7 +429,11 @@ def calc_index(files: list,
             water_mask_rprj = water_mask.astype(int).rio.reproject(f"EPSG:{utm_epsg_code}")
             
         # Export water mask as COG tiff
-        water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
+        try:
+            water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
+        except:
+            print(wm_path)
+            water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
     
     # Fmask
     filename = f"{tile_name.split('v2.0')[0]}v2.0_Fmask.tif"
@@ -446,7 +457,11 @@ def calc_index(files: list,
             fmask_rprj = fmask.rio.reproject(f"EPSG:{utm_epsg_code}")
         
         # Export scene's Fmask
-        fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
+        try:
+            fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
+        except:
+            print(fmask_path)
+            fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
     
     # Convert Fmask to quality mask
     mask_layer = create_quality_mask(fmask.data, bit_nums)
@@ -488,11 +503,8 @@ def joblib_hls_preprocessing(files: list,
             continue
 
         # Check if current year data is not a pre-fire year for burn severity to skip NDMI and NDVI for pre-fire year
-        try:
-            UTM_TILE_ID = original_name.split('.')[2][1:]
-            year = int(original_name.split('.')[3][:4])
-        except:
-            print(original_name)
+        UTM_TILE_ID = original_name.split('.')[2][1:]
+        year = int(original_name.split('.')[3][:4])
 
         if (any(pattern in band_index for pattern in ["NDMI", "NDVI"]) and
             not np.isin(year,processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_ID, "tst_year"])):
@@ -596,7 +608,7 @@ if __name__ == "__main__":
     band_index = ast.literal_eval(sys.argv[2])
     
     # Overwrite existing tiles?
-    OVERWRITE_DATA = False
+    OVERWRITE_DATA = True
     
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
@@ -700,5 +712,5 @@ if __name__ == "__main__":
     # Execute Joblib function
     Parallel(n_jobs=num_workers, backend='loky')(
         delayed(process_granule)(granule, UTM_TILE_NAME, year) for granule,
-        UTM_TILE_NAME, year in granule_jobs
+        UTM_TILE_NAME, year in tqdm(granule_jobs)
     )
