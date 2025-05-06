@@ -12,6 +12,7 @@ library(lme4)
 library(brms)
 library(tidybayes)
 library(tictoc)
+library(mclust)
 set.seed(10)
 
 # 0. Set up functions ----
@@ -193,16 +194,19 @@ if (file.exists(fname_model_data)){
   write_csv2(final_df,fname_model_data )
 }
 
+# scale variables
+final_df <- final_df %>% 
+  mutate(fireid = as.factor(fireid),
+         # scale predictors
+         burn_doy = burn_doy / 366,
+         elevation = scale(elevation)[,1],
+         across(contains("lst"), ~ as.numeric(scale(.))))
+
 # subset of upper 75th percentile
 df_subset <- final_df %>% 
   group_by(fireid) %>% 
   # filter(dnbr >= 0.245) %>%  # (threshold from Kolden et al. 2012)
   filter(quantile(dnbr, 0.75,na.rm=T)<dnbr) %>% 
-  mutate(fireid = as.factor(fireid),
-         # scale predictors
-         burn_doy = burn_doy / 366,
-         elevation = scale(elevation)[,1],
-         across(contains("lst"), ~ as.numeric(scale(.)))) %>% 
   ungroup()
 
 # 2. Descriptive statistics ----
@@ -462,8 +466,7 @@ final_df %>%
 ggsave2(sprintf("figures/cluster_ndmi_slope_%s.png",burn_severity_index),
         bg = "white",width = 10, height = 10)
 
-# 3. Plot time series data ----
-# ==============================.
+## b. Plot time series data ----
 
 # Plot daily NMDI sooths over days before fire
 df_transformed <- final_df %>%
@@ -615,6 +618,64 @@ ggplot(df_all, aes(x = lst_pred_d_prefire_7 ,
        color = "Burn class (Descals et al., 2022)") +
   theme_cowplot()
 
+# 3. Cluster data ----
+# ====================.
+df_clust_subset <- final_df %>% 
+  sample_frac(.05)
+
+mcl <- Mclust(df_clust_subset[c('NDMI.d_prefire_30','elevation','burn_doy')])
+
+summary(mcl)
+plot(mcl,  what = "classification")
+plot(mcl,  what = "uncertainty")
+
+df_mcl <- data.frame(mcl$BIC[], G = 1:nrow(mcl$BIC)) %>% 
+  pivot_longer(cols = 1:14, names_to = "Model", values_to = "BIC") %>% 
+  mutate(Model = factor(Model, levels = mclust.options("emModelNames")))
+
+ggplot(df_mcl, aes(x = G, y = BIC, colour = Model, shape = Model)) +
+  geom_point() + 
+  geom_line() +
+  scale_shape_manual(values = mclust.options("bicPlotSymbols")) +
+  scale_color_manual(values = mclust.options("bicPlotColors")) +
+  scale_x_continuous(breaks = unique(df_mcl$G)) +
+  xlab("Number of mixture components") +
+  guides(shape = guide_legend(ncol=2)) +
+  theme_cowplot()
+
+ggsave("figures/clustering/BIC_5pct_NDMI30_elev_doyburn.png",bg = 'white',
+       height = 6, width = 10)
+
+
+# report uncertainty statistics for clusters
+df_uncertainty <- data.frame(cluster = mcl$classification, 
+                             uncertainty = mcl$uncertainty)
+
+# Summarize stats per cluster
+summary_table <- df_uncertainty %>%
+  group_by(cluster) %>%
+  summarise(
+    mean = mean(uncertainty),
+    min = min(uncertainty),
+    max = max(uncertainty),
+    p95 = quantile(uncertainty, 0.95)
+  ) %>%
+  pivot_longer(-cluster, names_to = "statistic", values_to = "value") %>%
+  pivot_wider(names_from = cluster, names_prefix = "Cluster_", values_from = value) %>%
+  relocate(statistic)
+
+# Convert to gt table
+gt_table <- summary_table %>%
+  gt() %>%
+  tab_header(
+    title = "Uncertainty Summary Statistics per Cluster"
+  ) %>%
+  fmt_number(
+    columns = starts_with("Cluster_"),
+    decimals = 3
+  )
+
+gt_table
 
 # 4. Run linear model ----
 # ========================.

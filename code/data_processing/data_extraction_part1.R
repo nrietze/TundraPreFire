@@ -2,7 +2,6 @@ library(terra)
 library(sf)
 library(tidyterra)
 library(rts)
-# library(gt)
 library(tidyverse)
 library(cowplot)
 library(patchwork)
@@ -54,7 +53,7 @@ sample_dnbr_points <- function(raster, sample_pct = 0.10) {
 burn_severity_index <- "dNBR"
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 # TRUE to create random point samples on dNBR maps
 SAMPLE_FROM_DNBR_RASTER <- TRUE
