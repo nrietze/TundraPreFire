@@ -41,13 +41,18 @@ from skimage.filters import threshold_multiotsu
 np.seterr(divide='ignore', invalid='ignore')
 
 # %% Define user functions
-def setup_logger(log_filename):
-    logger = logging.getLogger(log_filename)
-    handler = logging.FileHandler(log_filename)
-    formatter = logging.Formatter('%(asctime)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+def setup_logger(log_path: str, level=logging.INFO):
+    logger = logging.getLogger(str(os.getpid()))  # use PID-based unique logger name
+
+    # Prevent duplicate handlers
+    if not logger.handlers:
+        logger.setLevel(level)
+        fh = logging.FileHandler(log_path)
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+        logger.propagate = False  # prevent log duplication in parent loggers
+
     return logger
 
 # Function to gather a list of lists with tiff files
@@ -252,7 +257,10 @@ def calc_index(files: list,
                              band_dict = hls_band_dict,
                              region = region,
                              chunk_size = chunk_size)
-        spectral_index = multispectral.ndmi(nir, swir1)
+        
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            spectral_index = multispectral.ndmi(nir, swir1)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -272,7 +280,9 @@ def calc_index(files: list,
                            region = region,
                            chunk_size = chunk_size)
         
-        spectral_index = multispectral.ndvi(nir, red)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            spectral_index = multispectral.ndvi(nir, red)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -325,7 +335,9 @@ def calc_index(files: list,
                              chunk_size = chunk_size)
         
         # spectral_index = nir.copy()
-        spectral_index = multispectral.nbr(nir, swir2)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            spectral_index = multispectral.nbr(nir, swir2)
         
         # Exclude data outside valid value range
         spectral_index = spectral_index.where(
@@ -410,11 +422,7 @@ def calc_index(files: list,
         # Export NDWI as COG tiff
         ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI.tif"
         ndwi_path = os.path.join(out_folder,ndwi_filename)
-        try:
-            ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
-        except:
-            print(ndwi_path)
-            ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
+        ndwi_rprj.rio.to_raster(raster_path = ndwi_path, driver = 'COG')
     
         # Apply Otsu's thresholding to NDWI
         hist_ndwi = da.histogram(ndwi, bins=2, range=[-1, 1])
@@ -423,17 +431,15 @@ def calc_index(files: list,
         
         # Apply threshold to mask out water
         water_mask = ndwi > otsu_thresh
+
+        del  ndwi, ndwi_rprj
         
         # Reproject if not EPSG conform
         if water_mask.rio.crs is not CRS.from_epsg(utm_epsg_code):
             water_mask_rprj = water_mask.astype(int).rio.reproject(f"EPSG:{utm_epsg_code}")
             
         # Export water mask as COG tiff
-        try:
-            water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
-        except:
-            print(wm_path)
-            water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
+        water_mask_rprj.rio.to_raster(raster_path = wm_path, driver = 'COG')
     
     # Fmask
     filename = f"{tile_name.split('v2.0')[0]}v2.0_Fmask.tif"
@@ -457,12 +463,8 @@ def calc_index(files: list,
             fmask_rprj = fmask.rio.reproject(f"EPSG:{utm_epsg_code}")
         
         # Export scene's Fmask
-        try:
-            fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
-        except:
-            print(fmask_path)
-            fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
-    
+        fmask_rprj.rio.to_raster(raster_path = fmask_path, driver = 'COG')
+
     # Convert Fmask to quality mask
     mask_layer = create_quality_mask(fmask.data, bit_nums)
     
@@ -474,7 +476,7 @@ def calc_index(files: list,
     spectral_index_qf = xr.where(spectral_index_qf != np.inf,
                                  spectral_index_qf, np.nan,
                                  keep_attrs=True)
-    
+
     return spectral_index_qf
 
 def joblib_hls_preprocessing(files: list,
@@ -488,15 +490,14 @@ def joblib_hls_preprocessing(files: list,
 
     original_name = os.path.basename(files[0])
 
-    logger.info(f"Processing: {original_name.split('v2.0')[0]}")
-    
     for index_name in band_index:
-        logger.info(f"Calculating: {index_name}")
-
+        
         # Generate output name from the original filename
         out_name = f"{original_name.split('v2.0')[0]}v2.0_{index_name}.tif"
         
         out_path = os.path.join(out_folder,out_name)
+        
+        logger.info(f"Processing {index_name} for {original_name.split('v2.0')[0]}.")
         
         if skip_source and skip_source in files[0]:
             logger.info("not reprocessing Sentinel data, only for Landsat..")
@@ -506,25 +507,23 @@ def joblib_hls_preprocessing(files: list,
         UTM_TILE_ID = original_name.split('.')[2][1:]
         year = int(original_name.split('.')[3][:4])
 
-        if (any(pattern in band_index for pattern in ["NDMI", "NDVI"]) and
+        if (np.isin(index_name,["NDMI", "NDVI"]) and
             not np.isin(year,processing_lut.loc[processing_lut.opt_UTM_tile == UTM_TILE_ID, "tst_year"])):
             
-            print(f"{year} {UTM_TILE_ID} has no fire in target year, skipping NDMI/NDVI.")
+            logger.info(f"{original_name.split('v2.0')[0]} is not fire in target year, skipping for {index_name}.")
             continue
-        
+
         # Check if file already exists in output directory, if yes--skip that file and move to the next observation
         if os.path.exists(out_path):
             
             if OVERWRITE_DATA:
-                logger.info(f"{out_name} exists but will be overwritten.")
-                
-                print(f"Overwriting & processing: {out_path}\n")
+                logger.info(f"Overwriting & processing: {out_name}")
                 
                 # Load existing data
                 spectral_index = calc_index(files, index_name,
                                             out_folder = out_folder,
                                             bit_nums = bit_nums)
-                logger.info(f"{index_name} index calculated.")
+                logger.info(f"{index_name} processing done.")
                 
             else:
                 logger.info(f"{out_name} has already been processed and is available in this directory, moving to next file.")
@@ -532,19 +531,18 @@ def joblib_hls_preprocessing(files: list,
         
         # "else" necessary to handle remasking of existing tiles in previous "if"
         else: 
-            print(f"Processing: {out_path}\n")
+            logger.info(f"Processing: {out_name}")
             
             # Calculate spectral index
             spectral_index = calc_index(files, index_name,
                                         out_folder = out_folder,
                                         bit_nums = bit_nums)
             
-            logger.info(f"{index_name} index calculated.")
+            logger.info(f"{index_name} processing done.")
         
         # Remove any observations that are entirely fill value
         if np.nansum(spectral_index.data) == 0.0:
-            print("File entirely fill values. Moving on.\n")
-            logger.info(f"File: {files[0].split('/')[-1].rsplit('.', 1)[0]} was entirely fill values and will not be exported.")
+            logger.info(f"File: {out_name} was entirely fill values and will not be exported.")
             continue
         
         # Extract UTM EPSG code for reprojection
@@ -558,7 +556,8 @@ def joblib_hls_preprocessing(files: list,
         # Export to COG tiffs
         spectral_index.rio.to_raster(raster_path = out_path, 
                                     driver = 'COG')
-        print("export done. \n")
+        del spectral_index
+        logger.info("done.")
     
     return None
 
@@ -580,12 +579,6 @@ if __name__ == "__main__":
     else:
         DATA_FOLDER = "/home/nrietz/data/" # on sciencecluster
         HLS_PARENT_PATH = "/home/nrietz/scratch/raster/hls/" # Set original data paths
-
-    num_workers = (
-            int(os.environ.get("SLURM_CPUS_PER_TASK"))
-            if os.environ.get("SLURM_CPUS_PER_TASK")
-            else os.cpu_count()
-        )
 
     multiprocessing.set_start_method('spawn')
 
@@ -628,8 +621,11 @@ if __name__ == "__main__":
     MAX_TIMEDELTA = 31
     OUT_FOLDER = "/home/nrietz/scratch/raster/hls/processed/"
     bit_nums = [0, 1, 2, 3, 4]  # Bits to mask out
-    num_workers = 4  # Adjust based on available CPUs
     
+    num_workers = 4
+
+    print("N workers:",num_workers)
+
     # Precompute all (Granule, UTM tilename, year) combinations in a list
     granule_jobs = []
 
@@ -694,7 +690,7 @@ if __name__ == "__main__":
 
                 hls_granules_paths_combined = hls_granules_paths_pre + hls_granules_paths_post
 
-            # Flatten granules into a list of (granule_path, metadata)
+            # Save granules into a list
             if hls_granules_paths_combined:
                 for granule in hls_granules_paths_combined:
                     granule_jobs.append((granule, UTM_TILE_NAME, year))
@@ -703,14 +699,14 @@ if __name__ == "__main__":
                     granule_jobs.append((granule, UTM_TILE_NAME, year))
 
     print(f"Total granules to process: {len(granule_jobs)}")
-    
-    # Set up final processing function
-    def process_granule(granule, UTM_TILE_NAME, year):
-        joblib_hls_preprocessing(granule, band_index, bit_nums, 
-                                 OUT_FOLDER, OVERWRITE_DATA, skip_source=None)
-    
+
+    with open("tmp/granule_jobs.txt", "w") as f:
+        for sublist, string_val, int_val in granule_jobs:
+            f.write(f"{','.join(sublist)}\t{string_val}\t{int_val}\n")
+
     # Execute Joblib function
     Parallel(n_jobs=num_workers, backend='loky')(
-        delayed(process_granule)(granule, UTM_TILE_NAME, year) for granule,
+        delayed(joblib_hls_preprocessing)(granule, band_index, bit_nums,
+                                          OUT_FOLDER, OVERWRITE_DATA, skip_source=None) for granule,
         UTM_TILE_NAME, year in tqdm(granule_jobs)
     )

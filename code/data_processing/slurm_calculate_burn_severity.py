@@ -2,6 +2,7 @@
 import os
 import sys
 import platform
+import warnings
 import multiprocessing
 from glob import glob
 import numpy as np
@@ -235,7 +236,8 @@ def calculate_severity_metrics(gemi_prefire_composite,
             # Calculate RdNBR (pre - post fire)
             dnbr = nbr_prefire_composite - nbr_postfire_composite
 
-            with np.errstate(divide='ignore'):
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
                 final_index = dnbr / np.sqrt(abs(nbr_prefire_composite))
 
         elif index_name == "RdNBR_corr":
@@ -245,14 +247,16 @@ def calculate_severity_metrics(gemi_prefire_composite,
             # calculate correction value (mode of unburned dNBR surrounding fire scar)
             mode_value = calculate_correction_value(dnbr, polygon,buffer_distance_meters = buffer_distance_meters)
 
-            with np.errstate(divide='ignore'):
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
                 final_index = (dnbr - mode_value) / np.sqrt(abs(nbr_prefire_composite))
         
         elif index_name == "RBR":
             # Calculate relativized burn ratio (pre - post fire)
             dnbr = nbr_prefire_composite - nbr_postfire_composite
             
-            with np.errstate(divide='ignore'):
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
                 final_index = dnbr / (nbr_prefire_composite + 1.001)
 
         # Exclude infinite values
@@ -362,6 +366,8 @@ def joblib_fct_calculate_severity(PROCESSED_HLS_DIR:str,
                                  relativedelta(years=1)).strftime("%Y-%m-%d")
         last_search_date_post = f"{year}-10-31"
         last_search_date_pre = f"{year-1}-10-31"
+        
+        print(f"First postfire date {first_search_date_post}")
         
         # Resample to daily resolution with max composite (just needed for dates of postfire period)
         nbr_ts.coords['date'] = nbr_ts.time.dt.floor('1D') # create date coord. for grouping
