@@ -219,10 +219,6 @@ for i in fire_polygons.index:
     # Skip processing if any files for tile and fire exist
     existing_lst_list = glob(os.path.join(OUT_FOLDER,f"{FIREID}_{TILE_NAME}*"))
     
-    if existing_lst_list:
-        print(f"(Some) LST data for fire {FIREID} in {TILE_NAME} exist, skipping gee download.\n")
-        continue
-    
     # Set output EPSG for this perimeter by extracting UTM EPSG code for reprojection
     utm_epsg_code = 32600 + int(TILE_NAME[:2])
     EPSG = f'EPSG:{utm_epsg_code}'

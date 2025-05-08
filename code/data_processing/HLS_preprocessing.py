@@ -20,6 +20,7 @@ from glob import glob
 from tqdm import tqdm
 import time
 import logging
+import shutil
 import warnings
 import datetime
 import multiprocessing
@@ -34,6 +35,7 @@ from osgeo import gdal
 import xarray as xr
 from xrspatial import multispectral
 import rioxarray as rxr
+from rasterio.errors import RasterioIOError
 from pyproj import CRS
 
 from skimage.filters import threshold_multiotsu
@@ -178,7 +180,19 @@ def load_rasters(index_band_links: list,
     # Use vsicurl to load the data directly into memory (be patient, may take a few seconds)
     # Tiles have 1 band and are divided into 512x512 pixel chunks
     raster = rxr.open_rasterio(lnk, chunks=chunk_size, masked=True).squeeze('band', drop=True)
-    
+
+    # Check integrity of raster
+    try:
+        raster.compute()
+    except RasterioIOError as e:
+        print(f"RasterioIOError caught: {e}. Writing dir to txt file.")
+
+        # Re-download corrupt HLS data
+        tile_delete_file = f"tmp/granules_to_delete.txt"
+        with open(tile_delete_file, "a") as temp_file:
+            dir_to_delete = os.path.dirname(lnk)
+            temp_file.write(dir_to_delete + "\n")
+
     if region is not None:
         # reproject AOIs to HLS CRS
         region_utm = region.to_crs(raster.spatial_ref.crs_wkt)
@@ -260,6 +274,7 @@ def calc_index(files: list,
         
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            
             spectral_index = multispectral.ndmi(nir, swir1)
         
         # Exclude data outside valid value range
@@ -282,6 +297,7 @@ def calc_index(files: list,
         
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            
             spectral_index = multispectral.ndvi(nir, red)
         
         # Exclude data outside valid value range
@@ -311,6 +327,7 @@ def calc_index(files: list,
         
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            
             spectral_index_data = (nir - (swir1 - swir2)) / (nir + (swir1 - swir2))
         
         # Replace the dummy xarray.DataArray data with the new spectral index data
@@ -334,9 +351,9 @@ def calc_index(files: list,
                              region = region,
                              chunk_size = chunk_size)
         
-        # spectral_index = nir.copy()
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            
             spectral_index = multispectral.nbr(nir, swir2)
         
         # Exclude data outside valid value range
@@ -403,8 +420,10 @@ def calc_index(files: list,
                              chunk_size = chunk_size)
         
         ndwi = nir.copy()
+        
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
+            
             ndwi.data = (green - nir) / (green + nir)
         
         # Exclude data outside valid value range
@@ -414,10 +433,8 @@ def calc_index(files: list,
         
         # Reproject if not EPSG conform
         if ndwi.rio.crs is not CRS.from_epsg(utm_epsg_code):
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', 'divide by zero encountered in divide', RuntimeWarning)
-                ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
-                                            chunks=chunk_size)
+            ndwi_rprj = ndwi.rio.reproject(f"EPSG:{utm_epsg_code}",
+                                           chunks=chunk_size)
             
         # Export NDWI as COG tiff
         ndwi_filename = f"{tile_name.split('v2.0')[0]}v2.0_NDWI.tif"
@@ -518,13 +535,16 @@ def joblib_hls_preprocessing(files: list,
             
             if OVERWRITE_DATA:
                 logger.info(f"Overwriting & processing: {out_name}")
-                
-                # Load existing data
-                spectral_index = calc_index(files, index_name,
-                                            out_folder = out_folder,
-                                            bit_nums = bit_nums)
-                logger.info(f"{index_name} processing done.")
-                
+
+                # Calculate spectral index
+                try:
+                    spectral_index = calc_index(files, index_name,
+                                                out_folder = out_folder,
+                                                bit_nums = bit_nums)
+                    logger.info(f"{index_name} processing done.")
+                except RasterioIOError as e:
+                    continue
+                    
             else:
                 logger.info(f"{out_name} has already been processed and is available in this directory, moving to next file.")
                 continue
@@ -534,15 +554,22 @@ def joblib_hls_preprocessing(files: list,
             logger.info(f"Processing: {out_name}")
             
             # Calculate spectral index
-            spectral_index = calc_index(files, index_name,
-                                        out_folder = out_folder,
-                                        bit_nums = bit_nums)
+            try:
+                spectral_index = calc_index(files, index_name,
+                                            out_folder = out_folder,
+                                            bit_nums = bit_nums)
+                logger.info(f"{index_name} processing done.")
+            except RasterioIOError as e:
+                continue
             
             logger.info(f"{index_name} processing done.")
         
         # Remove any observations that are entirely fill value
-        if np.nansum(spectral_index.data) == 0.0:
-            logger.info(f"File: {out_name} was entirely fill values and will not be exported.")
+        try:
+            if np.nansum(spectral_index.data) == 0.0:
+                logger.info(f"File: {out_name} was entirely fill values and will not be exported.")
+                continue
+        except RasterioIOError as e:
             continue
         
         # Extract UTM EPSG code for reprojection
@@ -601,7 +628,7 @@ if __name__ == "__main__":
     band_index = ast.literal_eval(sys.argv[2])
     
     # Overwrite existing tiles?
-    OVERWRITE_DATA = True
+    OVERWRITE_DATA = False
     
     # define chunk size for data loading
     chunk_size = dict(band=1, x=3600, y=3600)
@@ -623,8 +650,6 @@ if __name__ == "__main__":
     bit_nums = [0, 1, 2, 3, 4]  # Bits to mask out
     
     num_workers = 4
-
-    print("N workers:",num_workers)
 
     # Precompute all (Granule, UTM tilename, year) combinations in a list
     granule_jobs = []

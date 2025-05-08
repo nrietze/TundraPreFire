@@ -18,7 +18,6 @@ lut_df = pd.read_csv(
     os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"),
     index_col=0)
 
-tileid_file = "code/data_processing/tileid_file.txt"
 download_script = "code/data_processing/getHLS.sh"
 
 # Fixed date range for HLS bulk download

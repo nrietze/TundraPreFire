@@ -38,6 +38,10 @@ load_data <- function(fire_attrs,burn_severity_index,frac_int,
     as_tibble() %>% 
     mutate(date = as.Date(date),
            burn_date = as.Date(burn_date),
+           descals_burn_class = case_when(
+             descals_burn_class == 99 ~ "nodata",
+             TRUE ~ as.character(descals_burn_class)
+           ),
            doy = yday(burn_date),
            fireid = FIRE_ID)
   
@@ -171,24 +175,12 @@ if (file.exists(fname_model_data)){
   final_df <- read_csv2(fname_model_data)
   
 } else {
-  data_list <- subset_lut %>%
+  final_df <- subset_lut %>%
     split(seq(nrow(.))) %>%
-    map(~ load_data(.x, burn_severity_index, frac_int,
+    map_dfr(~ load_data(.x, burn_severity_index, frac_int,
                     return_df_only = TRUE)) %>%
     compact()
   
-  bind_fill <- function(dfs) {
-    all_cols <- unique(unlist(lapply(dfs, colnames)))  # all unique column names
-    dfs_filled <- lapply(dfs, function(df) {
-      missing <- setdiff(all_cols, names(df))       # columns that are missing
-      df[missing] <- NA                              # add missing columns filled with NA
-      df[all_cols]                                    # reorder to consistent column order
-    })
-    do.call(rbind, dfs_filled)
-  }
-  
-  # Combine dataframes
-  final_df <- bind_fill(data_list)
   final_df$burn_doy <- yday(final_df$burn_date)
   
   write_csv2(final_df,fname_model_data )
@@ -252,11 +244,11 @@ if (SAVE_FIGURES){
 }
 
 ### Scatterplot NDMI vs. LST ----
-ggplot(df_all_subset) +
-  geom_point(aes(x = DailyMeanNDMI,y = LST,color = burn_severity),
+ggplot(df_subset) +
+  geom_point(aes(x = DailyMeanNDMI,y = LST,color = !!sym(burn_severity_index)),
              alpha = .5) +
-  labs(x = "Canopy moisture (Daily averaged NDMI)",
-       y = "Land surface temperature (Daily averaged LST)",
+  labs(x = "Daily mean NDMI",
+       y = "Daily mean LST (scaled)",
        color = sprintf("Burn severity (%s)",burn_severity_index)) +
   theme_cowplot()
 
@@ -316,9 +308,16 @@ if (SAVE_FIGURES){
 
 
 ## Histogram of dNBR in sampled data ----
-burn_severity_index <- "rbr"
+burn_severity_index <- "rdnbr_corr"
 
-(pdnbr <- ggplot(data = final_df) +
+ggplot(data = df_subset) +
+    geom_histogram(aes(x = !!sym(burn_severity_index)),binwidth = .005) +
+    labs(x = sprintf("Burn Severity (%s)",burn_severity_index),
+         fill = "",
+         title = "Histograms per fire scar") +
+    theme_cowplot()
+
+(pdnbr <- ggplot(data = df_subset) +
   geom_histogram(aes(x = dnbr),binwidth = .005) +
   facet_wrap(~fireid) +
   labs(x = "Burn Severity (dNBR)",
@@ -481,21 +480,20 @@ df_transformed <- final_df %>%
   # Keep only pre-fire observations (optional)
   filter(days_before_fire > 0)
 
-ggplot(df_transformed, aes(x = days_before_fire, y = DailyMeanNDMI)) +
-  stat_smooth (aes(group = ObservationID),geom="line", 
+fig <- ggplot(df_transformed, aes(x = days_before_fire, y = DailyMeanNDMI)) +
+  stat_smooth(aes(group = ObservationID),geom="line", 
                alpha=0.1, linewidth=.5, span=0.5) +
   facet_wrap(~fireid) +
-  # geom_line(aes(group = ObservationID),alpha = 0.1) +  # Raw data points
-  # geom_point(alpha = 0.5) +  # Raw data points
   labs(
     x = "Days Before Fire",
     y = "Daily Mean NDMI",
     title = "NDMI Trend Before Fire"
   ) +
+  ylim(c(-1.2,1.2)) +
   scale_x_reverse() +
   theme_cowplot()
 
-ggsave2("figures/ndmi_curves_per_fire_alldnbr.png",
+ggsave2(fig,"figures/ndmi_curves_per_fire_alldnbr_v2.png",
         bg = "white",width = 10, height = 10)
 
 # LST smooths pre-fire
@@ -530,7 +528,7 @@ final_df %>%
   facet_wrap(~fireid,ncol = 2,scales = "free") +
   theme_cowplot()
 
-ggsave2("figures/n_obs_ndmi_per_fire_scar.png",
+ggsave2("figures/n_obs_ndmi_per_fire_scar_v3.png",
         bg = "white",width = 8, height = 16)
 
 # Plot nr. of non-NA LST observations for each day in 25 largest fires 
@@ -549,7 +547,7 @@ final_df %>%
   facet_wrap(~fireid,ncol = 2,scales = "free") +
   theme_cowplot()
 
-ggsave2("figures/n_obs_lst_per_fire_scar.png",
+ggsave2("figures/n_obs_lst_per_fire_scar_v3.png",
         bg = "white",width = 8, height = 16)
 
 # Plot all cumulated NDMI before fire
@@ -679,7 +677,7 @@ gt_table
 
 # 4. Run linear model ----
 # ========================.
-burn_severity_index <- "dnbr"
+burn_severity_index <- "rdnbr_corr"
 
 ## a. mixed model ----
 
@@ -723,10 +721,10 @@ run_lm_day <- function(day,y_var, data) {
 }
 
 # only model dNBR above burned threshold
-model_results_by_day <- pblapply(1:40, function(day) {
+model_results_by_day <- pblapply(1:30, function(day) {
   run_lm_day(y_var = burn_severity_index,
              day = day,
-             data = final_df)
+             data = df_subset)
 }) %>%
   bind_rows()
 

@@ -101,6 +101,7 @@ if (length(TEST_ID) > 0){final_lut <- filter(processing_lut,fireid %in% TEST_ID)
 # 3. Stack rasters and extract data----
 # =====================================.
 UTM_TILE_ID_old <- 9999 # dummy ID to start with
+year_old <- 9999 # dummy year to start with
 
 for(i in 1:nrow(final_lut)) {
   row <- final_lut[i, ]
@@ -167,7 +168,8 @@ for(i in 1:nrow(final_lut)) {
       # use previous stacks, if same UTM tile
       if ((UTM_TILE_ID == UTM_TILE_ID_old) &
           exists("ndvi_rt") &
-          exists("ndmi_rt") ){
+          exists("ndmi_rt") & 
+          (year == year_old)){
         # If still the same UTM tile, call old image stacks
         if ((index_name == "NDMI") & (crs(ndmi_rt[[1]])==crs(rast_dnbr))){
           rast_series <- ndmi_rt
@@ -378,7 +380,7 @@ for(i in 1:nrow(final_lut)) {
       select(-valid_count) %>%
       # Flag pre- & post-fire observations
       mutate(
-        burn_date = ymd_hms(burn_date),
+        burn_date = ymd(burn_date),
         BeforeBurnDate = date < burn_date
       )
 
@@ -427,4 +429,5 @@ for(i in 1:nrow(final_lut)) {
     write_csv2(df_filtered,paste0(OUT_DIR,fn_filtered_df))
   }
   UTM_TILE_ID_old <- UTM_TILE_ID
+  year_old <- year
 }

@@ -9,8 +9,6 @@ library(lubridate)
 library(tictoc)
 set.seed(10)
 
-plan(multisession, workers = 32)  # Parallel processing setup
-
 # 0. Set up functions ----
 # ========================.
 load_data <- function(fire_attrs,severity_index,frac_int){
@@ -173,7 +171,7 @@ TABLE_DIR <- paste0(DATA_DIR,"/tables/")
 
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
 frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
@@ -193,6 +191,9 @@ TEST_ID <- topN_fires$fireid
 # Load lookup table
 final_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overall LUT
   filter(tst_year >= 2017)
+
+optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
+                            show_col_types = FALSE)
 
 if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 
@@ -236,7 +237,7 @@ for (FIRE_ID in final_lut$fireid){
       
     # Group by ObservationID and apply function in parallel
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- pblapply(df_list, process_group, index_name = "DailyMeanNDMI")
+    results <- pblapply(df_list, process_group,cl = 30,  index_name = "DailyMeanNDMI")
     
     # unlist the results sublists to merge into data.table
     results_clean <- lapply(results, function(dt) {
@@ -255,7 +256,8 @@ for (FIRE_ID in final_lut$fireid){
                                                             if (.N >= 4) .SD,
                                                             by = ObservationID] 
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- pblapply(df_list, process_group, index_name = "DailyMeanNDVI")
+    
+    results <- pblapply(df_list, process_group,cl = 30,  index_name = "DailyMeanNDVI")
 
     results_clean <- lapply(results, function(dt) {
       as.data.table(lapply(dt, function(col) {
@@ -288,7 +290,7 @@ for (FIRE_ID in final_lut$fireid){
     
     # Group by ObservationID and apply function in parallel
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    results <- pblapply(df_list, process_group, index_name = "LST")
+    results <- pblapply(df_list, process_group,cl = 30,  index_name = "LST")
     
     # unlist the results sublists to merge into data.table
     results_clean <- lapply(results, function(dt) {

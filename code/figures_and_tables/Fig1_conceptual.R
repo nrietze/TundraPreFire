@@ -10,15 +10,27 @@ library(tidyterra)
 library(spatstat.utils)
 library(grid)
 library(patchwork)
+library(readr)
 
 set.seed(10)
 
 # 1. Load data and simulate NDMI time series ----
 severity_index <- "dNBR"
-FIRE_ID <- 17548
+FIRE_ID <- 14211
 
 OS <- Sys.info()[['sysname']]
-DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
+if(OS == "Linux"){
+  
+  HLS_DIR <- "~/scratch/raster/hls/"
+  TABLE_DIR <- "~/data/tables/"
+  DATA_DIR <- "~/data/"
+} else {
+  
+  HLS_DIR <- "data/raster/hls/"
+  TABLE_DIR <- "data/tables/"
+  DATA_DIR <- "data/"
+}
+
 
 # Output directory for sample tables
 OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
@@ -34,21 +46,21 @@ UTM_TILE_ID <- fire_attributes$opt_UTM_tile
 year <- fire_attributes$tst_year
 
 # Load real data from fire scar (fireid = 14211)
-# data_all <- read.csv(sprintf("data/tables/full_data_table_%s.csv",FIRE_ID))
-data_all <- read.csv2(
+data_all <- read_csv2(
   paste0(DATA_DIR,
-         sprintf("tables/sampled_data/%s_%s_merged_filtered_50th_pctile.csv",FIRE_ID,year))
+         sprintf("tables/model_dataframes/1pct/%s_model_dataframe.csv",FIRE_ID,year))
   )
 
-# Load burn severity rasters
-severity_rasters <- list.files(
-  path = paste0(DATA_DIR,"raster/hls/severity_rasters"),
-  pattern = sprintf("^%s_%s_%s.*\\.tif$",severity_index,UTM_TILE_ID,year),
-  full.names = TRUE)
+# Load burn severity raster
+optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
+                            show_col_types = FALSE)
 
-SCALE_FACTOR <- ifelse(severity_index == "dNBR", 1000, 1)
+fname_optimal_severity_raster <- optimality_lut %>% 
+  filter(fireid == FIRE_ID,
+         severity_index == "dNBR") %>% 
+  pull(fname_severity_raster)
 
-rast_burn_severity <- rast(severity_rasters[1]) * SCALE_FACTOR
+rast_burn_severity <- rast(fname_optimal_severity_raster) * SCALE_FACTOR
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
@@ -65,7 +77,7 @@ dnbr_in_perimeter <- rast_burn_severity %>%
 
 # Load sample points (with associated burn dates)
 fname_sample_points <- paste0(DATA_DIR,
-                              sprintf("feature_layers/%s_sample_points_burn_date.gpkg",
+                              sprintf("feature_layers/1pct/%s_sample_points_1pct_burn_date.gpkg",
                                FIRE_ID))
 
 sample_points <- vect(fname_sample_points) %>% 
@@ -98,7 +110,7 @@ simulate_ndmi <- function(days_since_burn, type) {
   }
   
   # Constrain NDMI values within -0.2 to 0.4
-  ndmi <- pmax(-0.1, pmin(ndmi, 0.3)) + 1
+  ndmi <- pmax(-0.1, pmin(ndmi, 0.3)) +1
   
   return(data.frame(DaysSinceBurn = days_since_burn, NDMI = ndmi, Curve = type))
 }
@@ -109,6 +121,10 @@ ndmi_data <- bind_rows(
   simulate_ndmi(days_since_burn, "b"),
   simulate_ndmi(days_since_burn, "c")
 )
+
+ggplot(ndmi_data,aes(x = DaysSinceBurn,y = NDMI)) +
+  geom_point() + 
+  theme_cowplot()
 
 # Create bars at days -4 to -1
 bars <- ndmi_data %>% 
@@ -210,7 +226,7 @@ fig_1c <- ndmi_data %>%
   theme(legend.position = "none")
 
 # 5. Plot Figure 1d) - scatterplot for 10d pre fire ----
-fig_1d <- ggplot(data_all,aes(x = d_prefire_10 ,y = dNBR)) +
+fig_1d <- ggplot(data_all,aes(x = NDMI.d_prefire_10 ,y = dnbr*1000)) +
   geom_point(alpha = .2, color = "gray30") +
   geom_point(data = point_vals, aes(x = NDMI_cumsum, y = dNBR, color = Curve),
              shape = 19,size = 6, alpha = 0.7)+
@@ -229,8 +245,8 @@ BBBCC
 DDDDD
 "
 
-fig_1a + fig_1b + fig_1c + fig_1d +
+pg <- fig_1a + fig_1b + fig_1c + fig_1d +
   plot_layout(design = layout)
 
-#ggsave2("figures/Figure_1.png",bg = "white",width = 16, height = 14)
+ggsave2(pg, "figures/Figure_1.png",bg = "white",width = 16, height = 14)
 
