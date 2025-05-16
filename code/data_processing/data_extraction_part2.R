@@ -364,16 +364,19 @@ for(i in 1:nrow(final_lut)) {
                 dgemi = first(dgemi),
                 burn_date = first(burn_date),
                 descals_burn_class = first(descals_burn_class))
+    
+    df_daily_spectral_index_prefire <- df_daily_spectral_index %>% 
+      filter(date < ymd(burn_date) + 14)
 
     # get nr. of valid observations
-    valid_counts_by_id <- df_daily_spectral_index %>%
+    valid_counts_by_id <- df_daily_spectral_index_prefire %>%
       group_by(ObservationID) %>%
       summarise(valid_count = sum(!is.na(DailyMeanNDMI)))
 
     thr_nobs <- quantile(valid_counts_by_id$valid_count,pct_cutoff , na.rm = TRUE)
 
     # Filter out observations with fewer than X observations
-    df_filtered <- df_daily_spectral_index %>%
+    df_filtered <- df_daily_spectral_index_prefire %>%
       inner_join(valid_counts_by_id, by = "ObservationID") %>%
       filter(valid_count >= thr_nobs,
              year(date) == year) %>%

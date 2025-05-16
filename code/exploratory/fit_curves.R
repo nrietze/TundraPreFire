@@ -96,7 +96,8 @@ model_index_smoothedspline <- function(x,y,full_data, spar = 0.5) {
   
   pred_before_burn <- pred_df[doy < doy_burn]
   pred_before_burn[, `:=`(
-    TI_index = revcumsum(spectral_index),
+    # TI_index = revcumsum(spectral_index),
+    TI_index = spectral_index,
     days_before_fire = doy_burn - doy
   )]
   
@@ -167,7 +168,7 @@ OS <- Sys.info()[['sysname']]
 DATA_DIR <- ifelse(OS == "Linux","~/data/","data/")
 
 HLS_DIR <- "~/scratch/raster/hls/"
-TABLE_DIR <- paste0(DATA_DIR,"/tables/")
+TABLE_DIR <- paste0(DATA_DIR,"tables/")
 
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
@@ -233,7 +234,12 @@ for (FIRE_ID in final_lut$fireid){
     # convert to data table for faster processing
     setDT(df_filtered) 
     
-    df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDMI) & .N >= 4, ]
+    # Filter observations in pre-fire + 14 d window & points with > 4 observations
+    df_filtered_nonan <- df_filtered[
+      date < (ymd(burn_date) + 14) & !is.na(DailyMeanNDMI),
+      .SD[.N >= 4],
+      by = ObservationID
+    ]
       
     # Group by ObservationID and apply function in parallel
     df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
@@ -252,12 +258,11 @@ for (FIRE_ID in final_lut$fireid){
     cat("Fitting smoothing splines for NDVI... \n")
     
     # Apply spline to each NDMI time series point (filter out NA and points with < 4 obs.)
-    df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDVI)][,
-                                                            if (.N >= 4) .SD,
-                                                            by = ObservationID] 
-    df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
-    
     results <- pblapply(df_list, process_group,cl = 30,  index_name = "DailyMeanNDVI")
+    # df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDVI)][,
+    #                                                         if (.N >= 4) .SD,
+    #                                                         by = ObservationID] 
+    # df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
 
     results_clean <- lapply(results, function(dt) {
       as.data.table(lapply(dt, function(col) {
@@ -328,3 +333,72 @@ for (FIRE_ID in final_lut$fireid){
     write_csv2(data_reduced,paste0(TABLE_DIR,filename))
     }
 }
+
+
+# 5. Check data fitting ----
+# data_reduced <- read_csv2(paste0(TABLE_DIR,filename))
+# data_reduced_before <- read_csv2(paste0(TABLE_DIR,"model_dataframes/1pct/14211_model_dataframe_copy.csv"))
+# 
+# data_reduced_long <- data_reduced %>%
+#   select(-contains("lst")) %>%
+#   select(-contains("ndvi")) %>%
+#   pivot_longer(
+#     cols = contains("NDMI.d_prefire_"),
+#     names_to = c(".value", "days_before_fire_from_colname"),
+#     names_pattern = "(NDMI)\\.d_prefire_([0-9]+)",
+#     values_drop_na = TRUE
+#   )%>% mutate(
+#     days_before_fire = yday(burn_date) - doy,
+#     days_before_fire_from_colname = as.integer(days_before_fire_from_colname)) %>% 
+#   group_by(ObservationID) %>%
+#   filter(days_before_fire_from_colname == days_before_fire) %>%
+#   ungroup() 
+# 
+# data_reduced_before_long <- data_reduced_before %>%
+#   select(-contains("lst")) %>%
+#   select(-contains("ndvi")) %>%
+#   pivot_longer(
+#     cols = contains("NDMI.d_prefire_"),
+#     names_to = c(".value", "days_before_fire_from_colname"),
+#     names_pattern = "(NDMI)\\.d_prefire_([0-9]+)",
+#     values_drop_na = TRUE
+#   ) %>% 
+#   mutate(
+#     days_before_fire = yday(burn_date) - doy,
+#     days_before_fire_from_colname = as.integer(days_before_fire_from_colname)) %>% 
+#   group_by(ObservationID) %>%
+#   filter(days_before_fire_from_colname == days_before_fire) %>%
+#   ungroup()
+# 
+# 
+# ggplot(data_reduced_long) + 
+#   geom_point(aes(x = days_before_fire,y = DailyMeanNDMI,
+#                 group = ObservationID),
+#             color = "red",alpha = .5) +
+#   geom_line(aes(x = days_before_fire,y = NDMI,
+#                 group = ObservationID),
+#             color = "blue",alpha = .5) +
+#   geom_vline(aes(xintercept = 0)) + 
+#   scale_x_reverse() +
+#   theme_cowplot()
+# 
+# ggsave(sprintf("figures/NDMI_splines_perpoint_shorter_period_%s.png",FIRE_ID),
+#        bg = "white",height = 12,width = 12)
+
+
+# name <- "dgemi"
+# q <- .5
+# n_points <- length(unique(data_reduced %>% 
+#                             filter(quantile(!!sym(name), q,na.rm=T)<!!sym(name)) %>%
+#                             pull(ObservationID)))
+# data_reduced %>% distinct(!!sym(name),.keep_all = T) %>% 
+#   ggplot(aes(x = !!sym(name))) + 
+#   stat_ecdf(color = "salmon") + 
+#   geom_hline(aes(yintercept = q)) +
+#   geom_vline(aes(xintercept = quantile(!!sym(name), q,na.rm=T))) +
+#   theme_cowplot() +
+#   labs(x = name,
+#        title = sprintf("Number of points with \n %s >= %s decile: %s",name, q,n_points)  )
+# 
+# ggsave(sprintf("figures/%s_ecdf_%s_cutoff_%s.png",name,q,FIRE_ID),
+#        bg = "white",height = 12,width = 12)

@@ -12,9 +12,10 @@ library(gt)
 set.seed(10)
 
 # 1. Load models ----
-model <- readr::read_rds("data/models/brm_benchmarking_20pct_day1.rds")
+model <- readr::read_rds("data/models/brm_benchmarking_1pct_day1_q75.rds")
+model_no_raneff <- readr::read_rds("data/models/brm_benchmarking_1pct_day1_q75_noraneff.rds")
 
-mod_files <- list.files("data/models/",pattern = "*day1.rds",full.names = T)
+mod_files <- list.files("data/models/",pattern = "brm_20pct_.*.rds",full.names = T)
 
 all_models <- lapply(mod_files,read_rds)
 
@@ -27,7 +28,7 @@ all_data_frames <- rbind(all_data_frames, df_subset %>%
                           mutate(run = nrow(df_subset)))
 
 ggplot(all_data_frames) +
-  geom_histogram(aes(x=dnbr), color = "tomato",fill = "salmon") +
+  geom_histogram(aes(x=dnbr_corr), color = "tomato",fill = "salmon") +
   labs(x = "Burn severity (dNBR)",
      title = "Distribution of dNBR for benchmark subset") +
   facet_wrap(~run)+
@@ -106,7 +107,6 @@ mod_labs <-c(elevation = 'Elevation',
         y = "") +
    theme_cowplot(18)
 )
-
 
 # Get random effects
 ranef(model)$fireid %>% 

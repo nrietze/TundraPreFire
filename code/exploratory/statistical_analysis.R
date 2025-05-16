@@ -7,12 +7,12 @@ library(patchwork)
 library(colorspace)
 library(lubridate)
 library(pbapply)
-library(INLA)
 library(lme4)
 library(brms)
 library(tidybayes)
 library(tictoc)
 library(mclust)
+library(gt)
 set.seed(10)
 
 # 0. Set up functions ----
@@ -154,6 +154,9 @@ fire_perimeters <- vect(
   sprintf("%s/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg",DATA_DIR)
 )
 
+df_all_fire_perims <- fire_perimeters %>% as.data.frame() %>% 
+  filter(tst_year >= 2017)
+
 ## Build global model data table ----
 topN_fires <- fire_perimeters %>%
   filter(tst_year >= 2017) %>% 
@@ -172,22 +175,22 @@ fname_model_data <-  paste0(
 
 if (file.exists(fname_model_data)){
   
-  final_df <- read_csv2(fname_model_data)
+  df_allfires <- read_csv2(fname_model_data)
   
 } else {
-  final_df <- subset_lut %>%
+  df_allfires <- subset_lut %>%
     split(seq(nrow(.))) %>%
     map_dfr(~ load_data(.x, burn_severity_index, frac_int,
                     return_df_only = TRUE)) %>%
     compact()
   
-  final_df$burn_doy <- yday(final_df$burn_date)
+  df_allfires$burn_doy <- yday(df_allfires$burn_date)
   
-  write_csv2(final_df,fname_model_data )
+  write_csv2(df_allfires,fname_model_data )
 }
 
 # scale variables
-final_df <- final_df %>% 
+df_allfires <- df_allfires %>% 
   mutate(fireid = as.factor(fireid),
          # scale predictors
          burn_doy = burn_doy / 366,
@@ -195,7 +198,7 @@ final_df <- final_df %>%
          across(contains("lst"), ~ as.numeric(scale(.))))
 
 # subset of upper 75th percentile
-df_subset <- final_df %>% 
+df_subset <- df_allfires %>% 
   group_by(fireid) %>% 
   # filter(dnbr >= 0.245) %>%  # (threshold from Kolden et al. 2012)
   filter(quantile(dnbr, 0.75,na.rm=T)<dnbr) %>% 
@@ -204,7 +207,125 @@ df_subset <- final_df %>%
 # 2. Descriptive statistics ----
 # ==============================.
 
-### Map & Histogram of burn severity data ----
+## a. Summary tables of studied fire scars ----
+
+### Figure & Table S1: Fire size ----
+table_S1 <- topN_fires %>% as.data.frame() %>% 
+  mutate(farea = 100 * farea, #convert to ha
+         burn_date = ymd(paste(tst_year,tst_month,tst_day,sep="-"))) %>% 
+  select(fireid,farea, burn_date) %>%
+  gt() %>% 
+  fmt_number(
+    columns = farea,
+    decimals = 0,
+    sep_mark ="'"
+  ) %>% 
+  cols_label(
+    fireid = "Fire Event ID",
+    farea = "Burned area (ha)",
+    burn_date = "Earliest burn date"
+  ) %>% 
+  tab_style(
+    style = cell_text(v_align = "top", weight = 'bold'),
+    locations = cells_column_labels());table_S1
+
+if (SAVE_FIGURES){
+  gtsave(table_S1,filename = "data/tables/Table_S1.html")
+}
+
+# Plot bar chart of fire sizes
+burned_area_all <- sum(df_all_fire_perims$farea)
+burned_area_top25 <- sum(topN_fires$farea)
+
+pct_studied <- (burned_area_top25 / burned_area_all) * 100
+
+s <- sprintf("The 25 studied fire scars made up %.1f%% \n of the total burned area in the study region since 2017.",round(pct_studied,1))
+
+annot_xy <- df_all_fire_perims %>% 
+  arrange(farea) %>% 
+  filter(fireid %in% topN_fires$fireid) %>% 
+  first() %>% 
+  select(fireid, farea)
+
+(p1 <- ggplot(df_all_fire_perims,aes(y = reorder(fireid,-farea), x = farea *100,
+               fill = ifelse(fireid %in% topN_fires$fireid,"studied","not studied"))) +
+    geom_bar(stat = 'identity') +
+    geom_vline(aes(xintercept = mean(topN_fires$farea*100)),color = "grey40", lty = "dashed") +
+    annotate("text", y = factor(annot_xy$fireid), x = annot_xy$farea + 100 *200,
+             label = s,
+             size = 7, color = "grey40") +
+    # geom_curve(aes(x = log(1e4), y = .3 * max(counts),
+    #                xend = log(900), yend = .03 * max(counts)),
+    #            arrow = arrow(length = unit(0.08, "inch")), linewidth = 1,
+    #            color = "grey40", curvature = -0.3) +
+    labs(y = "Fire Event ID",x = "Burned area (ha)",
+         fill = "Fire scar included in study?") +
+    scale_y_discrete(labels = NULL, breaks = NULL) +
+    theme_cowplot() +
+    theme(legend.position = "bottom"))
+
+(p2 <- ggplot(topN_fires,aes(x = tst_year, y = farea *100)) +
+    geom_bar(stat = 'identity') +
+    labs(x = "Fire Year",
+         y = "Total annual burned area of studied fires (ha)") +
+    theme_cowplot() +
+    theme(legend.position = "bottom"))
+  
+
+fig_s1 <- p1 + p2
+
+if (SAVE_FIGURES){
+  ggsave2(fig_s1,filename = "figures/Figure_S1.png", bg ="white",
+          width = 10, height = 8)
+}
+
+
+## b. Histogram of dNBR in sampled data ----
+PlotSeverityHistogram <- function(df_subset,burn_severity_index,
+                                  burn_severity_index_label, SAVEFIG =FALSE) {
+  p <- df_subset %>% 
+    distinct(ObservationID, .keep_all = TRUE) %>% 
+    ggplot() +
+    geom_histogram(aes(x = !!sym(burn_severity_index)),fill = "salmon") +
+    labs(x = sprintf("Burn Severity (%s)",burn_severity_index_label),
+         fill = "") +
+    theme_cowplot()
+  
+  if (SAVEFIG == TRUE){
+    ggsave2(p,filename = sprintf("figures/Histograms_%s_top25_scars_20pct.png",burn_severity_index),
+            width = 12,height = 10,bg = "white")
+  }
+  
+  return(p)
+}
+
+burn_severity_index <- "dnbr"
+p_dnbr <- PlotSeverityHistogram(df_subset,burn_severity_index,
+                                burn_severity_index_label = "dNBR", SAVEFIG = TRUE)
+
+burn_severity_index <- "dnbr_corr"
+p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
+                                burn_severity_index_label = "dNBR_corr", SAVEFIG = TRUE)
+
+burn_severity_index <- "rdnbr"
+p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
+                                burn_severity_index_label = "RdNBR", SAVEFIG = TRUE)
+
+burn_severity_index <- "rdnbr_corr"
+p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
+                                burn_severity_index_label = "RdNBR_corr", SAVEFIG = TRUE)
+
+burn_severity_index <- "rbr"
+p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
+                                burn_severity_index_label = "RBR", SAVEFIG = TRUE)
+
+burn_severity_index <- "dgemi"
+p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
+                                burn_severity_index_label = "dGEMI", SAVEFIG = TRUE)
+
+
+
+## b. Map & Histogram of burn severity data ----
 pg <- PlotSeverityMapHist(cropped_severity_raster)
 if (SAVE_FIGURES){
   ggsave2(pg,filename = sprintf("figures/%s_%s_map_hist.png",burn_severity_index,FIRE_ID),
@@ -243,7 +364,7 @@ if (SAVE_FIGURES){
           width = 8, height = 6,bg = "white")
 }
 
-### Scatterplot NDMI vs. LST ----
+## c. Scatterplot NDMI vs. LST ----
 ggplot(df_subset) +
   geom_point(aes(x = DailyMeanNDMI,y = LST,color = !!sym(burn_severity_index)),
              alpha = .5) +
@@ -258,38 +379,28 @@ if (SAVE_FIGURES){
           width = 8,height = 6,bg = "white")
 }
 
-### dNBR sensitivity over all dates (for largest scar) ----
+## d. dNBR sensitivity over all dates (for largest scar) ----
 UTM_TILE_ID <- "54WXE"
 year <- 2020
+selected_perim <- fire_perimeters %>% filter(fireid == 14211)
 
 severity_raster_list <- list.files(path = paste0(HLS_DIR,"severity_rasters"),
                                    pattern = sprintf("^%s_%s_%s.*\\.tif$",
                                                      burn_severity_index,UTM_TILE_ID,year),
                                    full.names = TRUE)
 
-all_dnbr_rast_list <- lapply(severity_raster_list, rast)
+all_dnbr_rast <- rast(severity_raster_list)
 
-# Extract dates (or full names) from filenames
-raster_names <- basename(severity_raster_list) |> 
-  tools::file_path_sans_ext()  # remove ".tif" if present
+all_dnbr_masked <- mask(all_dnbr_rast,selected_perim)
 
-# Set the names of each raster before stacking
-for (i in seq_along(all_dnbr_rast_list)) {
-  names(all_dnbr_rast_list[[i]]) <- raster_names[i]
-}
-
-# Combine into one multi-layer raster
-all_dnbr_rast <- rast(all_dnbr_rast_list)
+names(all_dnbr_rast) <- raster_names
 
 # Convert raster to data frame
 dnbr_df <- as.data.frame(all_dnbr_rast, xy = FALSE, na.rm = TRUE)
 
 # Reshape to long format
 dnbr_long <- dnbr_df %>%
-  pivot_longer(cols = everything(), names_to = "date", values_to = "dNBR")
-
-# Optional: Extract just the date part (if name is like "dNBR_54WXE_2020-09-04")
-dnbr_long <- dnbr_long %>%
+  pivot_longer(cols = everything(), names_to = "date", values_to = "dNBR") %>% 
   mutate(date = str_extract(date, "\\d{4}-\\d{2}-\\d{2}"))
 
 ggplot(dnbr_long, aes(x = dNBR)) +
@@ -305,86 +416,7 @@ if (SAVE_FIGURES){
           width = 10,height = 10,bg = "white")
 }
 
-
-
-## Histogram of dNBR in sampled data ----
-burn_severity_index <- "rdnbr_corr"
-
-ggplot(data = df_subset) +
-    geom_histogram(aes(x = !!sym(burn_severity_index)),binwidth = .005) +
-    labs(x = sprintf("Burn Severity (%s)",burn_severity_index),
-         fill = "",
-         title = "Histograms per fire scar") +
-    theme_cowplot()
-
-(pdnbr <- ggplot(data = df_subset) +
-  geom_histogram(aes(x = dnbr),binwidth = .005) +
-  facet_wrap(~fireid) +
-  labs(x = "Burn Severity (dNBR)",
-       fill = "",
-       title = "Histograms per fire scar") +
-  theme_cowplot())
-
-ggsave2(filename = "figures/Histograms_dnbr_top25_scars.png",
-        width = 12,height = 10,bg = "white")
-
-
-(prbr <- ggplot(data = final_df) +
-    geom_histogram(aes(x = rbr),binwidth = .005) +
-    facet_wrap(~fireid) +
-    labs(x = "Burn Severity (RBR)",
-         fill = "",
-         title = "Histograms per fire scar") +
-    theme_cowplot())
-
-ggsave2(filename = "figures/Histograms_rbr_top25_scars.png",
-        width = 12,height = 10,bg = "white")
-
-
-pdgemi <- ggplot(data = final_df) +
-  geom_histogram(aes(x = dgemi),binwidth = .005) +
-  facet_wrap(~fireid) +
-  labs(x = "Burn Severity (dgemi)",
-       title = "Histograms per fire scar",
-       fill = "") +
-  theme_cowplot()
-
-ggsave2(pdgemi,filename = "figures/Histograms_dgemi_top25_scars.png",
-        width = 12,height = 10,bg = "white")
-
-prdnbr <- ggplot(data = final_df) +
-  geom_histogram(aes(x = rdnbr),binwidth = .005) +
-  facet_wrap(~fireid) +
-  labs(x = "Burn Severity (RdNBR)",
-       title = "Histograms per fire scar",
-       fill = "") +
-  theme_cowplot()
-
-ggsave2(prdnbr,filename = "figures/Histograms_rdnbr_top25_scars.png",
-        width = 12,height = 10,bg = "white")
-
-
-(fig <- pdnbr / pdgemi +
-  plot_layout(axis_titles = "collect"))
-
-if (SAVE_FIGURES){
-  ggsave2(fig,filename = "figures/Histograms_dnbrvs_dgemi_top25_scars.png",
-          width = 12,height = 10,bg = "white")
-}
-
-# overall distribution
-ggplot(data = final_df) +
-  geom_density(aes(x = dnbr),color = 'tomato', fill = 'salmon',alpha = 0.7) +
-  labs(x = "Burn Severity (dNBR)",
-       title = "dNBR distribution of the 25 largest tundra fires") +
-  theme_cowplot()
-
-if (SAVE_FIGURES){
-  ggsave2(filename = "figures/dNBR_distribution_top25_scars.png",
-          width = 8,height = 6,bg = "white")
-}
-
-## Distributions of cumulative NDMI and NDVI ----
+## f. Distributions of cumulative NDMI and NDVI ----
 plot_distributions <- function(data, varname, cmap){
   df_plot <- data %>%
     select(contains(paste0(varname,"."))) %>%
@@ -418,7 +450,7 @@ if (SAVE_FIGURES){
           width = 6,height = 8,bg = "white")
 }
 
-### Check spatial autocorrelation ----
+## g. Check spatial autocorrelation ----
 # library(spatstat)
 # library(spdep)
 # 
@@ -452,10 +484,10 @@ if (SAVE_FIGURES){
 #         bg = "white",width = 10, height = 10)
 
 
-## cluster plots ----
+## h. cluster plots ----
 burn_severity_index <- "dnbr"
 
-final_df %>% 
+df_allfires %>% 
   mutate(avgNDMI = rowMeans(across(c(NDMI.d_prefire_1, NDMI.d_prefire_2, NDMI.d_prefire_3)), na.rm = TRUE),
          avgNDVI = rowMeans(across(c(NDVI.d_prefire_1, NDVI.d_prefire_2, NDVI.d_prefire_3)), na.rm = TRUE)) %>% 
   ggplot() + 
@@ -465,10 +497,21 @@ final_df %>%
 ggsave2(sprintf("figures/cluster_ndmi_slope_%s.png",burn_severity_index),
         bg = "white",width = 10, height = 10)
 
-## b. Plot time series data ----
+## i. Plot time series data ----
 
 # Plot daily NMDI sooths over days before fire
-df_transformed <- final_df %>%
+df_transformed <- df_allfires %>%
+  pivot_longer(
+    cols = matches("NDMI_prefire_d\\.|NDVI_prefire_d\\.|cumsum_lst_d_prefire_"),
+    names_to = c(".value", "days_before_fire"),
+    names_pattern = "(NDMI_prefire_d|NDVI_prefire_d|cumsum_lst_d_prefire)\\.?([0-9]+)",
+    values_drop_na = TRUE
+  ) %>%
+  rename(
+    NDMI = NDMI_prefire_d,
+    NDVI = NDVI_prefire_d,
+    LST = cumsum_lst_d_prefire
+  ) %>% 
   mutate(
     # Convert dates to day-of-year (doy)
     date_doy = yday(date),
@@ -480,20 +523,21 @@ df_transformed <- final_df %>%
   # Keep only pre-fire observations (optional)
   filter(days_before_fire > 0)
 
-fig <- ggplot(df_transformed, aes(x = days_before_fire, y = DailyMeanNDMI)) +
-  stat_smooth(aes(group = ObservationID),geom="line", 
+fig <- ggplot(df_transformed,aes(x = days_before_fire, y = DailyMeanNDMI)) +
+  stat_smooth(aes(group = ObservationID),geom="line",
                alpha=0.1, linewidth=.5, span=0.5) +
+  # geom_point(alpha=0.1) +
   facet_wrap(~fireid) +
   labs(
     x = "Days Before Fire",
     y = "Daily Mean NDMI",
     title = "NDMI Trend Before Fire"
   ) +
-  ylim(c(-1.2,1.2)) +
-  scale_x_reverse() +
+  lims(y = c(-1.2,1.2)) +
+  scale_x_reverse(limits = c(30,0)) +
   theme_cowplot()
 
-ggsave2(fig,"figures/ndmi_curves_per_fire_alldnbr_v2.png",
+ggsave2(fig,"figures/ndmi_points_per_fire_q75_20pct.png",
         bg = "white",width = 10, height = 10)
 
 # LST smooths pre-fire
@@ -513,7 +557,7 @@ ggsave2("figures/lst_curves_per_fire_alldnbr.png",
         bg = "white",width = 10, height = 10)
 
 # Plot nr. of non-NA NDMI observations for each day in 25 largest fires
-final_df %>% 
+df_allfires %>% 
   group_by(date,fireid) %>% 
   summarise(non_na_count = sum(!is.na(DailyMeanNDMI)),
             burn_date = first(burn_date)) %>% 
@@ -528,11 +572,11 @@ final_df %>%
   facet_wrap(~fireid,ncol = 2,scales = "free") +
   theme_cowplot()
 
-ggsave2("figures/n_obs_ndmi_per_fire_scar_v3.png",
+ggsave2("figures/n_obs_ndmi_per_fire_scar.png",
         bg = "white",width = 8, height = 16)
 
 # Plot nr. of non-NA LST observations for each day in 25 largest fires 
-final_df %>% 
+df_allfires %>% 
   group_by(date,fireid) %>% 
   summarise(non_na_count = sum(!is.na(LST)),
             burn_date = first(burn_date)) %>% 
@@ -547,7 +591,7 @@ final_df %>%
   facet_wrap(~fireid,ncol = 2,scales = "free") +
   theme_cowplot()
 
-ggsave2("figures/n_obs_lst_per_fire_scar_v3.png",
+ggsave2("figures/n_obs_lst_per_fire_scar.png",
         bg = "white",width = 8, height = 16)
 
 # Plot all cumulated NDMI before fire
@@ -571,8 +615,8 @@ ggplot(df_long, aes(x = day, y = NDMI_value)) +
 
 # Plot time-integrated NDMI 7 days before fire vs. dNBR
 xvar <- "NDMI.d_prefire_7"
-
-df_all_subset <- final_df %>% 
+  
+df_all_subset <- df_allfires %>% 
   mutate(severity_group = if_else(!!sym(burn_severity_index) >= 0.245,
                                   "burned (≥ 0.245)",
                                   "unburned (< 0.245)"))
@@ -595,8 +639,10 @@ if (SAVE_FIGURES){
 }
 
 # Plot time-integrated LST 7 days before fire vs. dNBR
-ggplot(df_all, aes(x = cumsum_lst_d_prefire_7 ,
-                   y = burn_severity,
+df_all_subset %>% sample_n(1e5) %>% 
+  filter(descals_burn_class != "nodata") %>% 
+  ggplot( aes(x = cumsum_lst_d_prefire_7 ,
+                   y = !!sym(burn_severity_index),
                    color = descals_burn_class)) +
   geom_point(alpha = .2) +
   geom_smooth(method='lm') +
@@ -605,23 +651,20 @@ ggplot(df_all, aes(x = cumsum_lst_d_prefire_7 ,
        color = "Burn class (Descals et al., 2022)") +
   theme_cowplot()
 
-
-# Plot single-day predicted LST 7 days before fire vs. dNBR
-ggplot(df_all, aes(x = lst_pred_d_prefire_7 ,
-                   y = burn_severity, color = descals_burn_class)) +
-  geom_point(alpha = .2) +
-  geom_smooth(method='lm') +
-  labs(x = "LST (predicted 7 days pre-fire)",
-       y = burn_severity_index,
-       color = "Burn class (Descals et al., 2022)") +
-  theme_cowplot()
-
 # 3. Cluster data ----
 # ====================.
-df_clust_subset <- final_df %>% 
-  sample_frac(.05)
+burn_severity_index <- "dnbr_corr"
 
-mcl <- Mclust(df_clust_subset[c('NDMI.d_prefire_30','elevation','burn_doy')])
+df_clust_subset <- df_allfires %>% 
+  sample_frac(.05) %>% 
+  drop_na(!!sym(burn_severity_index))
+
+ggplot(df_clust_subset) +
+  geom_histogram(aes(x = !!sym(burn_severity_index)),fill = "salmon") +
+  theme_cowplot()
+
+# mcl <- Mclust(df_clust_subset[c('NDMI.d_prefire_30','elevation','burn_doy')])
+mcl <- Mclust(df_clust_subset[burn_severity_index])
 
 summary(mcl)
 plot(mcl,  what = "classification")
@@ -677,7 +720,7 @@ gt_table
 
 # 4. Run linear model ----
 # ========================.
-burn_severity_index <- "rdnbr_corr"
+burn_severity_index <- "dnbr_corr"
 
 ## a. mixed model ----
 
@@ -861,7 +904,7 @@ results_burned %>%
 ## check multicollinearity ----
 mod1 <- lm(burn_severity ~ NDMI.d_prefire_10 + NDVI.d_prefire_10 + 
              elevation + slope + northness + eastness,
-           data=final_df)
+           data=df_allfires)
 summary(mod1)
 mc_result <- performance::multicollinearity(mod1)
 print(mc_result)

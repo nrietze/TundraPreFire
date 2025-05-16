@@ -48,7 +48,7 @@ year <- fire_attributes$tst_year
 # Load real data from fire scar (fireid = 14211)
 data_all <- read_csv2(
   paste0(DATA_DIR,
-         sprintf("tables/model_dataframes/1pct/%s_model_dataframe.csv",FIRE_ID,year))
+         sprintf("tables/model_dataframes/1pct/%s_model_dataframe.csv",FIRE_ID))
   )
 
 # Load burn severity raster
@@ -60,7 +60,7 @@ fname_optimal_severity_raster <- optimality_lut %>%
          severity_index == "dNBR") %>% 
   pull(fname_severity_raster)
 
-rast_burn_severity <- rast(fname_optimal_severity_raster) * SCALE_FACTOR
+rast_burn_severity <- rast(fname_optimal_severity_raster) * 1000
 
 # Load features (fire perimeters and ROIs)
 fire_perimeters <- vect(
