@@ -192,8 +192,9 @@ if (file.exists(fname_model_data)){
 # scale variables
 df_allfires <- df_allfires %>% 
   mutate(fireid = as.factor(fireid),
+         doy = yday(date),
          # scale predictors
-         burn_doy = burn_doy / 366,
+         burn_doy_scaled = burn_doy / 366,
          elevation = scale(elevation)[,1],
          across(contains("lst"), ~ as.numeric(scale(.))))
 
@@ -279,8 +280,23 @@ if (SAVE_FIGURES){
           width = 10, height = 8)
 }
 
+## b. Number of sample points per fire scar ----
+df_subset %>% 
+  group_by(fireid) %>% 
+  distinct(ObservationID,.keep_all = TRUE) %>% 
+  tally() %>% 
+  ggplot() + 
+  geom_bar(aes(x = reorder(fireid,-n),y = n),stat = "identity") + 
+  labs(y = "Number of valid sample points", x = "Fire ID") + 
+  theme_cowplot() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
 
-## b. Histogram of dNBR in sampled data ----
+if (SAVE_FIGURES){
+  ggsave2(filename = "figures/N_sample_points_per_scar.png", bg ="white",
+          width = 10, height = 6)
+}
+
+## c. Histogram of dNBR in sampled data ----
 PlotSeverityHistogram <- function(df_subset,burn_severity_index,
                                   burn_severity_index_label, SAVEFIG =FALSE) {
   p <- df_subset %>% 
@@ -301,38 +317,38 @@ PlotSeverityHistogram <- function(df_subset,burn_severity_index,
 
 burn_severity_index <- "dnbr"
 p_dnbr <- PlotSeverityHistogram(df_subset,burn_severity_index,
-                                burn_severity_index_label = "dNBR", SAVEFIG = TRUE)
+                                burn_severity_index_label = "dNBR", SAVEFIG = SAVE_FIGURES)
 
 burn_severity_index <- "dnbr_corr"
 p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
-                                burn_severity_index_label = "dNBR_corr", SAVEFIG = TRUE)
+                                burn_severity_index_label = "dNBR_corr", SAVEFIG = SAVE_FIGURES)
 
 burn_severity_index <- "rdnbr"
 p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
-                                burn_severity_index_label = "RdNBR", SAVEFIG = TRUE)
+                                burn_severity_index_label = "RdNBR", SAVEFIG = SAVE_FIGURES)
 
 burn_severity_index <- "rdnbr_corr"
 p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
-                                burn_severity_index_label = "RdNBR_corr", SAVEFIG = TRUE)
+                                burn_severity_index_label = "RdNBR_corr", SAVEFIG = SAVE_FIGURES)
 
 burn_severity_index <- "rbr"
 p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
-                                burn_severity_index_label = "RBR", SAVEFIG = TRUE)
+                                burn_severity_index_label = "RBR", SAVEFIG = SAVE_FIGURES)
 
 burn_severity_index <- "dgemi"
 p_dnbr <- PlotSeverityHistogram(df_test_subset,burn_severity_index,
-                                burn_severity_index_label = "dGEMI", SAVEFIG = TRUE)
+                                burn_severity_index_label = "dGEMI", SAVEFIG = SAVE_FIGURES)
 
 
 
-## b. Map & Histogram of burn severity data ----
+### i. Map & Histogram of burn severity data ----
 pg <- PlotSeverityMapHist(cropped_severity_raster)
 if (SAVE_FIGURES){
   ggsave2(pg,filename = sprintf("figures/%s_%s_map_hist.png",burn_severity_index,FIRE_ID),
           width = 8,height = 6,bg = "white")
 }
 
-### Plot distribution of total raster vs. sample points ----
+### ii. Plot distribution of total raster vs. sample points ----
 xvar <- as.symbol(burn_severity_index)
 
 p2 <- ggplot(data = cropped_severity_raster, aes(x = !!xvar)) +
@@ -364,7 +380,111 @@ if (SAVE_FIGURES){
           width = 8, height = 6,bg = "white")
 }
 
-## c. Scatterplot NDMI vs. LST ----
+## d. Plot NDMI, NDVI & LST time series ----
+
+### i. NDMI obs. & fitted  ----
+obsid_per_fire <- df_subset %>%
+  group_by(fireid) %>%
+  summarize(random_obsid = sample(unique(ObservationID), 1), .groups = "drop")
+
+df_subset_filtered <- df_subset %>% 
+  inner_join(obsid_per_fire, by = "fireid") %>%
+  filter(ObservationID == random_obsid) # picks a random ObservationID per fireid
+
+df_subset_filtered_transformed <- df_subset_filtered %>% 
+  pivot_longer(
+    cols = starts_with("NDMI.d_prefire_"),
+    names_to = "d_prefire_name",
+    values_to = "NDMI_fit"
+  ) %>%
+  mutate(d_prefire = as.integer(str_extract(d_prefire_name, "\\d+"))) %>%
+  filter(d_prefire >= 0 & d_prefire <= 30)
+
+df_subset_filtered_obs <- df_subset_filtered %>%
+  mutate(d_prefire = burn_doy - doy) %>%
+  filter(d_prefire >= 0 & d_prefire <= 30)
+
+ggplot() +
+  geom_point(data = df_subset_filtered_obs, aes(x = d_prefire, y = DailyMeanNDMI), color = "blue") +
+  geom_line(data = df_subset_filtered_transformed, aes(x = d_prefire, y = NDMI_fit), color = "red") +
+  facet_wrap(~ fireid) +
+  labs(
+    x = "Days Before Fire", 
+    y = "NDMI", 
+    title = "NDMI Observations vs. Fitted"
+  ) +
+  scale_x_reverse() +
+  theme_cowplot()
+
+if (SAVE_FIGURES){
+  ggsave2(filename = "figures/sample_NDMI_fitted_and_observed.png",
+          width = 8,height = 6,bg = "white")
+}
+
+### ii. Lineplots NDMI time series ----
+obsid_per_fire <- df_subset %>%
+  group_by(fireid) %>%
+  summarize(random_obsid = sample(unique(ObservationID), 10), .groups = "drop")
+
+df_subset_filtered <- df_subset %>% 
+  inner_join(obsid_per_fire, by = "fireid") %>%
+  filter(ObservationID == random_obsid)
+
+df_subset_transformed <- df_subset_filtered %>% 
+  pivot_longer(
+    cols = starts_with("NDMI.d_prefire_"),
+    names_to = "d_prefire_name",
+    values_to = "NDMI_fit"
+  ) %>%
+  mutate(d_prefire = as.integer(str_extract(d_prefire_name, "\\d+"))) %>%
+  filter(d_prefire >= 0 & d_prefire <= 30)
+
+
+df_subset_transformed <- df_subset_filtered %>%
+  pivot_longer(
+    cols = matches("^(NDMI\\.d_prefire_|NDVI\\.d_prefire_|lst_pred_d_prefire_)"),
+    names_to = c(".value", "d_prefire"),
+    names_pattern = "(NDMI\\.d_prefire_|NDVI\\.d_prefire_|lst_pred_d_prefire_)(\\d+)"
+  ) %>%
+  mutate(d_prefire = as.integer(d_prefire)) %>%
+  filter(d_prefire >= 0 & d_prefire <= 30) %>% 
+  rename(
+    NDMI_fit = NDMI.d_prefire_,
+    NDVI_fit = NDVI.d_prefire_,
+    LST_fit = lst_pred_d_prefire_
+  )
+
+ggplot(data = df_subset_transformed) +
+  geom_line(aes(x = d_prefire, y = NDMI_fit,group = ObservationID), alpha = .1) +
+  geom_vline(xintercept = 0,lty = "dashed") +
+  facet_wrap(~ fireid) +
+  labs(
+    x = "Days Before Fire", 
+    y = "NDMI", 
+    title = "NDMI fits"
+  ) +
+  scale_x_reverse() +
+  theme_cowplot()
+
+ggplot(data = df_subset_transformed) +
+  geom_line(aes(x = d_prefire, y = LST_fit,group = ObservationID), alpha = .1) +
+  geom_vline(xintercept = 0,lty = "dashed") +
+  facet_wrap(~ fireid) +
+  labs(
+    x = "Days Before Fire", 
+    y = "LST (scaled)", 
+    title = "LST fits"
+  ) +
+  scale_x_reverse() +
+  theme_cowplot()
+
+if (SAVE_FIGURES){
+  ggsave2(filename = "figures/sample_NDMI_timeseries.png",
+          width = 8,height = 8,bg = "white")
+}
+
+
+### iii. Scatterplot NDMI vs. LST ----
 ggplot(df_subset) +
   geom_point(aes(x = DailyMeanNDMI,y = LST,color = !!sym(burn_severity_index)),
              alpha = .5) +
@@ -379,7 +499,42 @@ if (SAVE_FIGURES){
           width = 8,height = 6,bg = "white")
 }
 
-## d. dNBR sensitivity over all dates (for largest scar) ----
+## e. Histograms of all predictors ----
+predictors <- c("NDVI.d_prefire_", "NDMI.d_prefire_","cumsum_lst_d_prefire_", 
+                "elevation", "slope", "northness", "eastness", "burn_doy_scaled")
+
+predictor_pattern <- paste(predictors, collapse = "|")
+
+# Omit columns where prefire day > 30
+selected_cols <- df_subset %>%
+  select(matches(predictor_pattern)) %>%
+  select(where(~ {
+    colname <- deparse(substitute(.))
+    if (str_detect(colname, "_\\d+$")) {
+      num <- as.integer(str_extract(colname, "\\d+$"))
+      !is.na(num) && num <= 30
+    } else {
+      TRUE
+    }
+  }))
+
+df_long <- selected_cols %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+p_hist <- ggplot(df_long, aes(x = value, fill = variable)) +
+  geom_histogram(bins = 30, alpha = 0.7, color = "black") +
+  facet_wrap(~ variable, scales = "free") +
+  theme_cowplot() +
+  labs(title = "Histograms of Predictor Variables", x = "Value", y = "Count") +
+  theme(legend.position = "none")
+
+if (SAVE_FIGURES){
+  ggsave2(p_hist,filename = "figures/Histogram_predictors.png",
+          width = 12,height = 12,bg = "white")
+}
+
+
+## e. dNBR sensitivity over all dates (for largest scar) ----
 UTM_TILE_ID <- "54WXE"
 year <- 2020
 selected_perim <- fire_perimeters %>% filter(fireid == 14211)
@@ -730,37 +885,50 @@ run_lm_day <- function(day,y_var, data) {
   ndmi_var <- paste0("NDMI.d_prefire_", day)
   lst_var <- paste0("cumsum_lst_d_prefire_", day)
   
-  predictors <- c(ndvi_var, ndmi_var,lst_var, "elevation", "slope", "northness", "eastness", "burn_doy")
+  predictors <- c(ndvi_var, ndmi_var,lst_var, "elevation", "slope", "northness", "eastness", "burn_doy_scaled")
   fixed_effects <- paste(predictors, collapse = " + ")
   formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
   
   model <- lmer(formula, data = data, REML = FALSE)
   model_summary <- summary(model)
   
-  # reduced_formula <- as.formula(paste(y_var, "~", 1, "+ (1 | fireid)"))
-  # reduced.lmer <- lmer(reduced_formula,data = data, REML = FALSE)
-  # 
-  # anova(reduced.lmer, model)  # the two models are not significantly different
-  
   # Extract fixed effect estimates
   coefs <- fixef(model)  # Named vector
-  # pvals <- coef(summary(model))[, "Pr(>|t|)"]
+  std_err <- coef(summary(model))[, "Std. Error"]
+  t_vals <- coef(summary(model))[, "t value"]
   
   # R-squared using performance package (optional but helpful)
   r2_vals <- performance::r2(model)
   
-  tibble(
-    days_before_fire = day,
-    r_squared = r2_vals$R2_marginal,
-    adj_r_squared = NA  # Not directly available in lmer
+  coefs_tbl <- tibble(
+    predictor = names(coefs),
+    coef = unlist(coefs),
+    std_err = unlist(std_err),
+    t_val = unlist(t_vals)
   ) %>%
-    bind_cols(
-      as_tibble_row(
-        setNames(as.list(coefs),
-                 c("Intercept","NDVI", "NDMI","LST",
-                   "elevation", "slope", "northness", "eastness",
-                   "doy")))
+    mutate(
+      days_before_fire = day,
+      r_squared_marg = r2_vals$R2_marginal,
+      r_squared_cond = r2_vals$R2_conditional,
+      adj_r_squared = NA_real_
     )
+  
+  return(coefs_tbl)
+  
+  # tibble(
+  #   days_before_fire = day,
+  #   r_squared_marg = r2_vals$R2_marginal,
+  #   r_squared_cond = r2_vals$R2_conditional,
+  #   adj_r_squared = NA  # Not directly available in lmer
+  # ) %>%
+  #   bind_cols(
+  #     as_tibble_row(
+  #       setNames(as.list(coefs),
+  #                c("Intercept","NDVI", "NDMI","LST",
+  #                  "elevation", "slope", "northness", "eastness",
+  #                  "burn_doy_scaled"))
+  #       )
+  #   )
 }
 
 # only model dNBR above burned threshold
@@ -771,38 +939,75 @@ model_results_by_day <- pblapply(1:30, function(day) {
 }) %>%
   bind_rows()
 
-# model_results_by_day <- map_dfr(c(1:40), ~ run_lm_day(y_var = burn_severity_index,
-#                                                       day = .x,
-#                                                       data = df_subset))
 results <- model_results_by_day %>% arrange(days_before_fire)
 
 (fig <- ggplot(results) + 
-  geom_point(aes(x = days_before_fire, y = r_squared)) +
+  geom_point(aes(x = days_before_fire, y = r_squared_marg)) +
   scale_x_reverse() +
-  labs(x = "Days before fire", y = "R-squared",
+  labs(x = "Days before fire", y = "marginal R-squared",
        title = sprintf("Rsquared for %s",burn_severity_index)) + 
   theme_cowplot() )
 
 if (SAVE_FIGURES){
-  ggsave2(fig,filename = sprintf("figures/%s_top25_R2_fullmod.png",burn_severity_index),
+  ggsave2(fig,filename = sprintf("figures/%s_top25_R2_marg_no_cumsum.png",burn_severity_index),
           width = 8,height = 6,bg = "white")
 }
 
-
-# Plot effect sizes over time
-results %>% 
-  pivot_longer(
-    cols = -c(days_before_fire, r_squared, adj_r_squared),
-    names_to = "coefficient", values_to = "values") %>% 
-  ggplot() + 
-  geom_point(aes(x = days_before_fire, y = values)) + 
-  scale_x_reverse() +
-  labs(x = "Days before fire", y = "Effect size") +
-  facet_wrap(~coefficient,scales="free",nrow = 2) + 
-  theme_cowplot()
+(fig <- ggplot(results) + 
+    geom_point(aes(x = days_before_fire, y = r_squared_cond)) +
+    scale_x_reverse() +
+    labs(x = "Days before fire", y = "conditional R-squared",
+         title = sprintf("Rsquared for %s",burn_severity_index)) + 
+    theme_cowplot() )
 
 if (SAVE_FIGURES){
-  ggsave2(filename = sprintf("figures/%s_effect_sizes_top25.png",
+  ggsave2(fig,filename = sprintf("figures/%s_top25_R2_cond_no_cumsum.png",burn_severity_index),
+          width = 8,height = 6,bg = "white")
+}
+
+# Plot effect sizes over time
+results_clean <- results %>%
+  mutate(
+    # Extract base predictor: NDVI, NDMI, LST (or keep as-is for Intercept, etc.)
+    base_predictor = case_when(
+      str_detect(predictor, "^NDVI\\.d_prefire_") ~ "NDVI",
+      str_detect(predictor, "^NDMI\\.d_prefire_") ~ "NDMI",
+      str_detect(predictor, "^cumsum_lst_d_prefire_") ~ "LST",
+      TRUE ~ predictor  # Keep Intercept or others as-is
+    ),
+    
+    # Extract numeric day from "d_prefire_" part
+    day_from_name = as.integer(str_extract(predictor, "(?<=d_prefire_)[0-9]+")),
+    
+    # Replace with parsed day if available
+    days_before_fire = coalesce(day_from_name, days_before_fire)
+  ) %>%
+  select(-day_from_name) 
+
+results_clean %>%
+  mutate(
+    significant = (coef - std_err > 0) | (coef + std_err < 0),
+    alpha_val = ifelse(significant, 1, 0.5)
+  ) %>%
+  filter(base_predictor %in% c("NDVI", "NDMI", "LST","elevation", "slope", "northness", "eastness", "burn_doy_scaled")) %>%
+  ggplot(aes(
+    x = days_before_fire,
+    y = coef,
+    color = base_predictor,
+    alpha = alpha_val,
+    group = base_predictor
+  )) +
+  geom_point() +
+  geom_line() +
+  scale_x_reverse() +
+  facet_wrap(~ base_predictor, scales = "free_y", nrow = 2) +
+  labs(x = "Days before fire", y = "Effect size (coefficient)") +
+  scale_alpha_identity() +
+  theme_cowplot() +
+  theme(legend.position = "none")
+
+if (SAVE_FIGURES){
+  ggsave2(filename = sprintf("figures/%s_effect_sizes_top25_no_cumsum.png",
                              burn_severity_index),
           width = 10,height = 8,bg = "white")
 }

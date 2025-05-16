@@ -172,7 +172,7 @@ TABLE_DIR <- paste0(DATA_DIR,"tables/")
 
 severity_index <- "dNBR"
 pct_cutoff <- 0.5
-OVERWRITE_DATA <- FALSE
+OVERWRITE_DATA <- TRUE
 
 frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
@@ -257,12 +257,14 @@ for (FIRE_ID in final_lut$fireid){
     
     cat("Fitting smoothing splines for NDVI... \n")
     
-    # Apply spline to each NDMI time series point (filter out NA and points with < 4 obs.)
+    # Apply spline to each NDVI time series point (filter out NA and points with < 4 obs.)
+    df_filtered_nonan <- df_filtered[
+      date < (ymd(burn_date) + 14) & !is.na(DailyMeanNDVI),
+      .SD[.N >= 4],
+      by = ObservationID
+    ]
+    df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
     results <- pblapply(df_list, process_group,cl = 30,  index_name = "DailyMeanNDVI")
-    # df_filtered_nonan <- df_filtered[!is.na(DailyMeanNDVI)][,
-    #                                                         if (.N >= 4) .SD,
-    #                                                         by = ObservationID] 
-    # df_list <- split(df_filtered_nonan, df_filtered_nonan$ObservationID)
 
     results_clean <- lapply(results, function(dt) {
       as.data.table(lapply(dt, function(col) {
@@ -335,9 +337,11 @@ for (FIRE_ID in final_lut$fireid){
 }
 
 
-# 5. Check data fitting ----
+# 5. Data integrity checks ----
+
+## a. Check NDMI/NDVI spline fits align with observations ----
+
 # data_reduced <- read_csv2(paste0(TABLE_DIR,filename))
-# data_reduced_before <- read_csv2(paste0(TABLE_DIR,"model_dataframes/1pct/14211_model_dataframe_copy.csv"))
 # 
 # data_reduced_long <- data_reduced %>%
 #   select(-contains("lst")) %>%
@@ -354,23 +358,6 @@ for (FIRE_ID in final_lut$fireid){
 #   filter(days_before_fire_from_colname == days_before_fire) %>%
 #   ungroup() 
 # 
-# data_reduced_before_long <- data_reduced_before %>%
-#   select(-contains("lst")) %>%
-#   select(-contains("ndvi")) %>%
-#   pivot_longer(
-#     cols = contains("NDMI.d_prefire_"),
-#     names_to = c(".value", "days_before_fire_from_colname"),
-#     names_pattern = "(NDMI)\\.d_prefire_([0-9]+)",
-#     values_drop_na = TRUE
-#   ) %>% 
-#   mutate(
-#     days_before_fire = yday(burn_date) - doy,
-#     days_before_fire_from_colname = as.integer(days_before_fire_from_colname)) %>% 
-#   group_by(ObservationID) %>%
-#   filter(days_before_fire_from_colname == days_before_fire) %>%
-#   ungroup()
-# 
-# 
 # ggplot(data_reduced_long) + 
 #   geom_point(aes(x = days_before_fire,y = DailyMeanNDMI,
 #                 group = ObservationID),
@@ -385,7 +372,7 @@ for (FIRE_ID in final_lut$fireid){
 # ggsave(sprintf("figures/NDMI_splines_perpoint_shorter_period_%s.png",FIRE_ID),
 #        bg = "white",height = 12,width = 12)
 
-
+## b. Check nr. of valid observations per quantile threshold & severity index ----
 # name <- "dgemi"
 # q <- .5
 # n_points <- length(unique(data_reduced %>% 
@@ -402,3 +389,24 @@ for (FIRE_ID in final_lut$fireid){
 # 
 # ggsave(sprintf("figures/%s_ecdf_%s_cutoff_%s.png",name,q,FIRE_ID),
 #        bg = "white",height = 12,width = 12)
+
+## c. Check if NDVI & NDMI time series have same length ----
+
+# for (FIRE_ID in topN_fires$fireid){
+  year <- topN_fires %>% filter(fireid==FIRE_ID) %>% pull(tst_year)
+  df <- read_csv2(sprintf("~/data/tables/sampled_data/1pct/NDVI_sampled_%s_%s.csv",FIRE_ID,year))
+  df2 <- read_csv2(sprintf("~/data/tables/sampled_data/1pct/NDMI_sampled_%s_%s.csv",FIRE_ID,year))
+  df3 <- read_csv2(sprintf("~/data/tables/sampled_data/1pct/LST_sampled_%s_%s.csv",FIRE_ID,year))
+
+  p <- ggplot() +
+    geom_point(data = df,aes(x = Time,y = NDVI)) +
+    geom_point(data = df2,aes(x = Time,y = NDMI),color = "blue") +
+    geom_point(data = df3 %>% filter(Time>"2017-01-01"),aes(x = Time,y = LST / max(LST)),color = "red") +
+    geom_vline(data = df2 ,aes(xintercept = burn_date),lty = "dashed") +
+    labs(y = "HLS values (-)",
+         title = sprintf("Fire: %s in %s",FIRE_ID,year)) +
+    theme_cowplot()
+
+  print(p)
+# }
+

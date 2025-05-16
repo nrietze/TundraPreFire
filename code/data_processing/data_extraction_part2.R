@@ -81,7 +81,6 @@ topN_fires <- fire_perimeters %>%
   arrange(desc(farea)) %>% 
   slice_head(n = 25) 
 
-# TEST_ID <- c(14664,10792,17548) 
 TEST_ID <- topN_fires$fireid
 
 if (length(TEST_ID) > 0){final_lut <- filter(processing_lut,fireid %in% TEST_ID)}
@@ -365,18 +364,15 @@ for(i in 1:nrow(final_lut)) {
                 burn_date = first(burn_date),
                 descals_burn_class = first(descals_burn_class))
     
-    df_daily_spectral_index_prefire <- df_daily_spectral_index %>% 
-      filter(date < ymd(burn_date) + 14)
-
     # get nr. of valid observations
-    valid_counts_by_id <- df_daily_spectral_index_prefire %>%
+    valid_counts_by_id <- df_daily_spectral_index %>%
       group_by(ObservationID) %>%
       summarise(valid_count = sum(!is.na(DailyMeanNDMI)))
 
     thr_nobs <- quantile(valid_counts_by_id$valid_count,pct_cutoff , na.rm = TRUE)
 
     # Filter out observations with fewer than X observations
-    df_filtered <- df_daily_spectral_index_prefire %>%
+    df_filtered <- df_daily_spectral_index %>%
       inner_join(valid_counts_by_id, by = "ObservationID") %>%
       filter(valid_count >= thr_nobs,
              year(date) == year) %>%
