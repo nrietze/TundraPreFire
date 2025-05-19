@@ -8,8 +8,7 @@ library(colorspace)
 library(lubridate)
 library(pbapply)
 library(lme4)
-library(brms)
-library(tidybayes)
+library(lmerTest)
 library(tictoc)
 library(mclust)
 library(gt)
@@ -87,6 +86,28 @@ load_data <- function(fire_attrs,burn_severity_index,frac_int,
               selected_fire_perimeter))
 }
 
+rowwise_cumsum <- function(df, pattern) {
+  prefix <- "cum_"
+  # Select NDMI/NDVI column names
+  cols <- df %>% 
+    select(matches(pattern)) %>%
+    select(order(as.integer(str_extract(names(.), "\\d+")))) %>%
+    names()
+  
+  # Compute row-wise cumulative sums
+  cumsum_df <- df %>%
+    select(all_of(cols)) %>%
+    t() %>%
+    apply(2, cumsum) %>%
+    t() %>%
+    as.data.frame()
+  
+  # Assign new column names
+  names(cumsum_df) <- paste0(prefix, cols)
+  
+  return(cumsum_df)
+}
+
 PlotSeverityMapHist <- function(cropped_severity_raster){
   burn_severity_index <- names(cropped_severity_raster)
   SCALE_FACTOR <- ifelse(burn_severity_index == "dNBR", 1000, 1)
@@ -149,6 +170,12 @@ processing_lut <- read.csv(paste0(TABLE_DIR,"processing_LUT.csv")) %>%  # overal
 optimality_lut <- read_csv2(paste0(TABLE_DIR,"optimality_LUT.csv"),
                             show_col_types = FALSE)
 
+df_optimal_raster_doy <- optimality_lut %>% 
+  mutate(fireid = as.factor(fireid),
+         raster_doy = yday(date_raster)) %>% 
+  mutate(raster_doy_scaled = raster_doy / 366) %>% 
+  select(raster_doy,raster_doy_scaled,fireid)
+
 # Load fire perimeters
 fire_perimeters <- vect(
   sprintf("%s/feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg",DATA_DIR)
@@ -189,6 +216,11 @@ if (file.exists(fname_model_data)){
   write_csv2(df_allfires,fname_model_data )
 }
 
+ndmi_cumsum <- rowwise_cumsum(df_allfires, "^NDMI\\.d_prefire_\\d+$")
+ndvi_cumsum <- rowwise_cumsum(df_allfires, "^NDVI\\.d_prefire_\\d+$")
+df_allfires <- bind_cols(df_allfires, ndmi_cumsum, ndvi_cumsum)
+
+
 # scale variables
 df_allfires <- df_allfires %>% 
   mutate(fireid = as.factor(fireid),
@@ -196,7 +228,10 @@ df_allfires <- df_allfires %>%
          # scale predictors
          burn_doy_scaled = burn_doy / 366,
          elevation = scale(elevation)[,1],
-         across(contains("lst"), ~ as.numeric(scale(.))))
+         across(contains("lst"), ~ as.numeric(scale(.)))) %>% 
+  left_join(df_optimal_raster_doy,
+            by = "fireid"
+            )
 
 # subset of upper 75th percentile
 df_subset <- df_allfires %>% 
@@ -818,8 +853,24 @@ ggplot(df_clust_subset) +
   geom_histogram(aes(x = !!sym(burn_severity_index)),fill = "salmon") +
   theme_cowplot()
 
+ggplot(df_clust_subset) +
+  geom_boxplot(aes(y = !!sym(burn_severity_index), x = as.factor(raster_doy))) +
+  theme_cowplot()
+
+ggplot(df_clust_subset) +
+  geom_boxplot(aes(y = !!sym(burn_severity_index), x = as.factor(raster_doy))) +
+  theme_cowplot()
+
+df_clust_subset %>% 
+  ggplot() +
+  geom_point(aes(x = burn_doy, y = raster_doy)) +
+  lims(x = c(170,270), y = c(170,270)) +
+  theme_cowplot()
+
 # mcl <- Mclust(df_clust_subset[c('NDMI.d_prefire_30','elevation','burn_doy')])
-mcl <- Mclust(df_clust_subset[burn_severity_index])
+mcl <- Mclust(df_allfires %>%
+                drop_na(!!sym(burn_severity_index)) %>% 
+                select(burn_severity_index,raster_doy))
 
 summary(mcl)
 plot(mcl,  what = "classification")
@@ -875,27 +926,28 @@ gt_table
 
 # 4. Run linear model ----
 # ========================.
-burn_severity_index <- "dnbr_corr"
-
 ## a. mixed model ----
 
 # Function to run lm and extract statistics
 run_lm_day <- function(day,y_var, data) {
   ndvi_var <- paste0("NDVI.d_prefire_", day)
   ndmi_var <- paste0("NDMI.d_prefire_", day)
-  lst_var <- paste0("cumsum_lst_d_prefire_", day)
+  lst_var <- paste0("lst_pred_d_prefire_", day)
   
-  predictors <- c(ndvi_var, ndmi_var,lst_var, "elevation", "slope", "northness", "eastness", "burn_doy_scaled")
+  predictors <- c(ndvi_var, ndmi_var,lst_var, 
+                  "elevation", "slope", "northness", "eastness",
+                  "burn_doy_scaled")
   fixed_effects <- paste(predictors, collapse = " + ")
   formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
   
-  model <- lmer(formula, data = data, REML = FALSE)
+  model <- lmerTest::lmer(formula, data = data, REML = FALSE)
   model_summary <- summary(model)
   
   # Extract fixed effect estimates
   coefs <- fixef(model)  # Named vector
   std_err <- coef(summary(model))[, "Std. Error"]
   t_vals <- coef(summary(model))[, "t value"]
+  p_vals <- coef(summary(model))[, "Pr(>|t|)"]
   
   # R-squared using performance package (optional but helpful)
   r2_vals <- performance::r2(model)
@@ -904,7 +956,8 @@ run_lm_day <- function(day,y_var, data) {
     predictor = names(coefs),
     coef = unlist(coefs),
     std_err = unlist(std_err),
-    t_val = unlist(t_vals)
+    t_val = unlist(t_vals),
+    p_val = unlist(p_vals)
   ) %>%
     mutate(
       days_before_fire = day,
@@ -914,22 +967,10 @@ run_lm_day <- function(day,y_var, data) {
     )
   
   return(coefs_tbl)
-  
-  # tibble(
-  #   days_before_fire = day,
-  #   r_squared_marg = r2_vals$R2_marginal,
-  #   r_squared_cond = r2_vals$R2_conditional,
-  #   adj_r_squared = NA  # Not directly available in lmer
-  # ) %>%
-  #   bind_cols(
-  #     as_tibble_row(
-  #       setNames(as.list(coefs),
-  #                c("Intercept","NDVI", "NDMI","LST",
-  #                  "elevation", "slope", "northness", "eastness",
-  #                  "burn_doy_scaled"))
-  #       )
-  #   )
 }
+
+
+burn_severity_index <- "dnbr_corr"
 
 # only model dNBR above burned threshold
 model_results_by_day <- pblapply(1:30, function(day) {
@@ -941,12 +982,56 @@ model_results_by_day <- pblapply(1:30, function(day) {
 
 results <- model_results_by_day %>% arrange(days_before_fire)
 
+saveRDS(results,sprintf("data/models/results_lmer_%s_nocumsum.rds",burn_severity_index))
+
+results_clean <- results %>%
+  mutate(
+    # Extract base predictor: NDVI, NDMI, LST (or keep as-is for Intercept, etc.)
+    base_predictor = case_when(
+      str_detect(predictor, "^NDVI\\.d_prefire_") ~ "NDVI",
+      str_detect(predictor, "^NDMI\\.d_prefire_") ~ "NDMI",
+      str_detect(predictor, "^lst_pred_d_prefire_") ~ "LST",
+      TRUE ~ predictor  # Keep Intercept or others as-is
+    ),
+    
+    # Extract numeric day from "d_prefire_" part
+    day_from_name = as.integer(str_extract(predictor, "(?<=d_prefire_)[0-9]+")),
+    
+    # Replace with parsed day if available
+    days_before_fire = coalesce(day_from_name, days_before_fire)
+  ) %>%
+  select(-day_from_name) 
+
+max_r2_day <- results_clean %>%
+  filter(r_squared_marg == max(r_squared_marg, na.rm = TRUE)) %>%
+  select(days_before_fire, r_squared_marg) %>% 
+  distinct()
+
+max_day <- max_r2_day$days_before_fire
+max_r2 <- max_r2_day$r_squared_marg
+
+s <- substitute(
+  "Maximum" ~ R^2 ~ "for" ~ dNBR[corr] ~ "is" ~ d ~ "days before the fire",
+  list(d = max_day)
+)
+
+
+## b. Plot model results ----
+
+### i. R2 curves ----
 (fig <- ggplot(results) + 
   geom_point(aes(x = days_before_fire, y = r_squared_marg)) +
-  scale_x_reverse() +
-  labs(x = "Days before fire", y = "marginal R-squared",
-       title = sprintf("Rsquared for %s",burn_severity_index)) + 
-  theme_cowplot() )
+    geom_vline(aes(xintercept = max_day), lty = "dashed") +
+    annotate("text", x = max_day + 6, y = max_r2,
+             label = s,
+             size = 7, color = "grey40") +
+    geom_curve(aes(x = max_day, y = max_r2, 
+                   xend = max_day + 10, yend = max_r2 - .1),
+               arrow = arrow(length = unit(0.08, "inch")), linewidth = 1,
+               color = "grey40", curvature = -0.3) +
+    scale_x_reverse() +
+    labs(x = "Days before fire", y = expression("marginal"~R^2)) + 
+    theme_cowplot() )
 
 if (SAVE_FIGURES){
   ggsave2(fig,filename = sprintf("figures/%s_top25_R2_marg_no_cumsum.png",burn_severity_index),
@@ -965,31 +1050,28 @@ if (SAVE_FIGURES){
           width = 8,height = 6,bg = "white")
 }
 
-# Plot effect sizes over time
-results_clean <- results %>%
-  mutate(
-    # Extract base predictor: NDVI, NDMI, LST (or keep as-is for Intercept, etc.)
-    base_predictor = case_when(
-      str_detect(predictor, "^NDVI\\.d_prefire_") ~ "NDVI",
-      str_detect(predictor, "^NDMI\\.d_prefire_") ~ "NDMI",
-      str_detect(predictor, "^cumsum_lst_d_prefire_") ~ "LST",
-      TRUE ~ predictor  # Keep Intercept or others as-is
-    ),
-    
-    # Extract numeric day from "d_prefire_" part
-    day_from_name = as.integer(str_extract(predictor, "(?<=d_prefire_)[0-9]+")),
-    
-    # Replace with parsed day if available
-    days_before_fire = coalesce(day_from_name, days_before_fire)
-  ) %>%
-  select(-day_from_name) 
+# find maxima of each predictor
+ndmi_max_d <- results_clean %>%
+  filter(base_predictor == "NDMI") %>%
+  filter(coef == max(coef, na.rm = TRUE)) %>%
+  select(base_predictor, days_before_fire, coef) %>%
+  ungroup()
+ndvi_max_d <- results_clean %>%
+  filter(base_predictor == "NDVI") %>%
+  filter(coef == max(coef, na.rm = TRUE)) %>%
+  select(base_predictor, days_before_fire, coef) %>%
+  ungroup()
 
+# Plot effect sizes over time
 results_clean %>%
   mutate(
-    significant = (coef - std_err > 0) | (coef + std_err < 0),
+    # significant = (coef - std_err > 0) | (coef + std_err < 0),
+    significant = p_val < 0.05,
     alpha_val = ifelse(significant, 1, 0.5)
   ) %>%
-  filter(base_predictor %in% c("NDVI", "NDMI", "LST","elevation", "slope", "northness", "eastness", "burn_doy_scaled")) %>%
+  filter(base_predictor %in% c("NDVI", "NDMI", "LST",
+                               "elevation", "slope", "northness", "eastness", 
+                               "burn_doy_scaled","raster_doy")) %>%
   ggplot(aes(
     x = days_before_fire,
     y = coef,
@@ -998,7 +1080,11 @@ results_clean %>%
     group = base_predictor
   )) +
   geom_point() +
-  geom_line() +
+  geom_errorbar(aes(
+    ymin = coef - std_err,
+    ymax = coef + std_err
+  ), width = 0.5) +
+  geom_hline(yintercept = 0, lty = "dashed") +
   scale_x_reverse() +
   facet_wrap(~ base_predictor, scales = "free_y", nrow = 2) +
   labs(x = "Days before fire", y = "Effect size (coefficient)") +
@@ -1011,189 +1097,3 @@ if (SAVE_FIGURES){
                              burn_severity_index),
           width = 10,height = 8,bg = "white")
 }
-
-## b. Run linear model on individual site  ----
-# Load individual fire data
-FIRE_ID <- 14664
-if (!is.na(FIRE_ID)){
-  subset_lut <- filter(processing_lut, fireid == FIRE_ID)
-  
-  data_list <- load_data(subset_lut, burn_severity_index = "dNBR",
-                         frac_int)
-  
-  final_df_14664 <- data_list[[1]]
-  severity_raster_sample <- data_list[[2]]
-  sample_points <- data_list[[3]]
-  cropped_severity_raster <- data_list[[4]]
-  selected_fire_perimeter <- data_list[[5]]
-  
-  final_df_14664_burnclass <- final_df_14664 %>% 
-    filter(dnbr >= 0.1)
-  
-  rm(data_list)
-}
-
-run_lm <- function(day,y_var, data) {
-  ndvi_var <- paste0("NDVI.d_prefire_", day)
-  ndmi_var <- paste0("NDMI.d_prefire_", day)
-  
-  predictors <- c(ndvi_var, ndmi_var, "elevation", "slope", "northness", "eastness", "doy")
-  fixed_effects <- paste(predictors, collapse = " + ")
-  formula <- as.formula(paste(y_var, "~", fixed_effects))
-  
-  model <- lm(formula, data = data)
-  model_summary <- summary(model)
-  
-  coefs <- coef(model)
-  
-  tibble(
-    days_before_fire = day,
-    r_squared = model_summary$r.squared,
-    adj_r_squared = model_summary$adj.r.squared
-  ) %>%
-    bind_cols(
-      as_tibble_row(
-        setNames(as.list(coefs),
-                 c("Intercept","NDVI", "NDMI",
-                   "elevation", "slope", "northness", "eastness",
-                   "doy")))
-    )
-}
-
-# Run lm for each d_prefire column and combine results
-burn_severity_index <- "dnbr"
-
-results_all_burn_classes <- map_dfr(c(1:40),
-                                    ~run_lm(burn_severity_index, day = .x,data = final_df_14664))
-results_all_burn_classes <- results_all_burn_classes %>% arrange(days_before_fire)
-
-# Plot R2
-p1 <- ggplot(results_all_burn_classes) + 
-  geom_point(aes(x = days_before_fire, y = r_squared)) + 
-  ylim(c(0.15,0.47)) +
-  labs(x = "Days before fire", y = "R-squared", 
-       title = sprintf("%s ~ NDVI.d_prefire_x + NDMI.d_prefire_x + elevation + 
-         slope + northness + eastness + doy",burn_severity_index)) +
-  theme_cowplot()
-
-results_burned <- map_dfr(c(1:40),
-                          ~run_lm(burn_severity_index, day = .x,data = final_df_14664_burnclass))
-results_burned <- results_burned %>% arrange(days_before_fire)
-
-p2 <- ggplot(results_burned) + 
-  geom_point(aes(x = days_before_fire, y = r_squared)) + 
-  ylim(c(0.15,0.47)) +
-  labs(x = "Days before fire", y = "R-squared") +
-  theme_cowplot()
-
-fig <- p1 + p2 +
-  plot_layout(axis_titles = "collect")
-
-if (SAVE_FIGURES){
-  ggsave2(fig,filename = sprintf("figures/%s_%s_R2_comparison.png",burn_severity_index,FIRE_ID),
-          width = 8,height = 6,bg = "white")
-}
-
-
-# Plot effect sizes over time
-results_burned %>% 
-  pivot_longer(
-    cols = -c(days_before_fire, r_squared, adj_r_squared),
-    names_to = "coefficient", values_to = "values") %>% 
-  ggplot() + 
-  geom_point(aes(x = days_before_fire, y = values)) + 
-  labs(x = "Days before fire", y = "Effect size") +
-  facet_wrap(~coefficient,scales="free",ncol = 2) + 
-  theme_cowplot()
-
-## check multicollinearity ----
-mod1 <- lm(burn_severity ~ NDMI.d_prefire_10 + NDVI.d_prefire_10 + 
-             elevation + slope + northness + eastness,
-           data=df_allfires)
-summary(mod1)
-mc_result <- performance::multicollinearity(mod1)
-print(mc_result)
-
-
-## c. INLA ----
-run_inla <- function(day,y_var, data) {
-  ndvi_var <- paste0("NDVI.d_prefire_", day)
-  ndmi_var <- paste0("NDMI.d_prefire_", day)
-  lst_var <- paste0("cumsum_lst_d_prefire_", day)
-  
-  predictors <- c(ndvi_var, ndmi_var,lst_var, "elevation", "slope", "northness", "eastness", "burn_doy")
-  fixed_effects <- paste(predictors, collapse = " + ")
-  # formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
-  formula <- as.formula(paste0(y_var, " ~ ",fixed_effects, 
-                               " +  f(fireid, model = 'iid')")) 
-  
-  model  <- inla(formula, 
-                 family = "gaussian",
-                 data = data)
-  
-  model_summary <- summary(model)
-  
-  coefs <- coef(model)
-  
-  tibble(
-    days_before_fire = day,
-    r_squared = model_summary$r.squared,
-    adj_r_squared = model_summary$adj.r.squared
-  ) %>%
-    bind_cols(
-      as_tibble_row(
-        setNames(as.list(coefs),
-                 c("Intercept","NDVI", "NDMI",
-                   "elevation", "slope", "northness", "eastness",
-                   "doy")))
-    )
-}
-
-library(ggregplot)
-Efxplot(model) + 
-  theme_cowplot()
-ggsave("figures/inla_10d_efxplot.png",width = 8, height = 8, bg = "white")
-# dNBR_model_sel <- INLAModelSel(y_var, predictors, "fireid", "iid", "gaussian", df_subset)
-# Finalcovar <- dNBR_model_sel$Removed[[length(dNBR_model_sel$Removed)]]
-
-
-## d. brms ----
-y_var <- "dnbr"
-day <- 10
-ndvi_var <- paste0("NDVI.d_prefire_", day)
-ndmi_var <- paste0("NDMI.d_prefire_", day)
-lst_var <- paste0("cumsum_lst_d_prefire_", day)
-
-predictors <- c(ndvi_var, ndmi_var, "elevation", "slope", "northness", "eastness", "doy")
-fixed_effects <- paste(predictors, collapse = " + ")
-formula <- as.formula(paste(y_var, "~", fixed_effects, "+ (1 | fireid)"))
-
-df_d10_subset <- df_subset %>% 
-  group_by(fireid) %>% 
-  sample_frac(.05)
-
-# tic()
-# bay_qr_day10 <- brm(
-#   bf(formula, quantile = 0.75),
-#   data = df_d10_subset,
-#   family = asym_laplace(),
-#   chains = 4,
-#   iter = 10000,
-#   thin = 10,
-#   cores = 4, seed = 1234
-# )
-# toc()
-
-tic()
-model <- brm(
-  bf(formula),
-  family = "gaussian",
-  data = df_d10_subset,
-  chains = 4,
-  iter = 10000,
-  thin = 10,
-  cores = 4, 
-  seed = 1234)
-toc()
-
-summary(model)
