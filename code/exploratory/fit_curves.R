@@ -171,8 +171,8 @@ HLS_DIR <- "~/scratch/raster/hls/"
 TABLE_DIR <- paste0(DATA_DIR,"tables/")
 
 severity_index <- "dNBR"
-pct_cutoff <- 0.5
-OVERWRITE_DATA <- TRUE
+pct_cutoff <- 0.1
+OVERWRITE_DATA <- FALSE
 
 frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
@@ -201,8 +201,8 @@ if (length(TEST_ID) > 0){final_lut <- filter(final_lut,fireid %in% TEST_ID)}
 for (FIRE_ID in final_lut$fireid){
   cat(sprintf("Processing data from fire: %s \n",FIRE_ID))
   
-  filename <- sprintf("model_dataframes/%spct/%s_model_dataframe.csv",
-                      frac_int,FIRE_ID)
+  filename <- sprintf("model_dataframes/%spct/%s_model_dataframe_%sth_pct.csv",
+                      frac_int,FIRE_ID,pct_cutoff*100)
   
   if (!file.exists(paste0(TABLE_DIR,filename)) || OVERWRITE_DATA){
   

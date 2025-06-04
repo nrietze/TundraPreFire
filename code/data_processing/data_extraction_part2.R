@@ -41,10 +41,10 @@ get_ls_datetime <- function(raster){
 # ===================================.
 
 # TRUE to overwrite existing data form time series extraction
-OVERWRITE_DATA <- TRUE
+OVERWRITE_DATA <- FALSE
 
 # Define percentile for sample cutoff
-pct_cutoff <- 0.5
+pct_cutoff <- 0.1
 
 frac_to_sample <- 0.01
 frac_int <- frac_to_sample *100
@@ -157,7 +157,8 @@ for(i in 1:nrow(final_lut)) {
 
   for (index_name in c("NDMI","NDVI")){
     # Check if filename exists and reprocessing is activated
-    filename <- sprintf("%s_sampled_%s_%s.csv",index_name,FIRE_ID,year)
+    filename <- sprintf("%s_sampled_%s_%s_%sth_percentile.csv",
+                        index_name,FIRE_ID,year,pct_cutoff*100)
 
     fmt  <- ifelse(index_name == "NDMI","%Y-%m-%d %H:%M:%S","X%Y.%m.%d.%H.%M.%S")
 
@@ -259,7 +260,8 @@ for(i in 1:nrow(final_lut)) {
   ## b. Landsat-8 LST ----
 
   # Check if filename exists and reprocessing is activated
-  filename <- sprintf("LST_sampled_%s_%s.csv",FIRE_ID,year)
+  filename <- sprintf("LST_sampled_%s_%s_%sth_percentile.csv",
+                      FIRE_ID,year,pct_cutoff*100)
 
   # only stack rasters if needed (takes a while)
   if (!file.exists(paste0(OUT_DIR,filename)) || OVERWRITE_DATA){
