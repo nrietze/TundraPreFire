@@ -132,6 +132,7 @@ def joblib_function(path):
                         'ted_month': 'month', 
                         'ted_day': 'day'}))
     random_points_sjoin['burn_doy'] = random_points_sjoin['burn_date'].dt.dayofyear
+    random_points_sjoin['mean_FRP'] = random_points_sjoin['meanFRP']
     
     # export data
     random_points_sjoin.to_file(fname_out)

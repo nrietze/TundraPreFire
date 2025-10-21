@@ -1,6 +1,7 @@
 library(cowplot)
 library(viridis)
 library(colorspace)
+library(scico)
 library(tidyverse)
 library(scales)
 library(ggh4x)
@@ -11,8 +12,10 @@ library(spatstat.utils)
 library(grid)
 library(patchwork)
 library(readr)
-
+library(ggrepel)
 set.seed(10)
+
+SAVE_FIGURES <- TRUE
 
 # 1. Load data and simulate NDMI time series ----
 burn_severity_index <- "dNBR_corr"
@@ -60,6 +63,11 @@ fname_optimal_severity_raster <- optimality_lut %>%
          severity_index == "dNBR") %>% 
   pull(fname_severity_raster)
 
+if (OS == "Windows"){
+  fname_optimal_severity_raster <- gsub("/home/nrietz/scratch","data",
+                                        fname_optimal_severity_raster)
+}
+
 rast_burn_severity <- rast(gsub("dNBR",burn_severity_index,fname_optimal_severity_raster))
 
 # Load features (fire perimeters and ROIs)
@@ -67,12 +75,18 @@ fire_perimeters <- vect(
   paste0(DATA_DIR,"feature_layers/fire_atlas/viirs_perimeters_in_cavm_e113.gpkg")
 )
 
+# Build global model data table
+topN_fires <- fire_perimeters %>%
+  filter(tst_year >= 2017) %>% 
+  arrange(desc(farea)) %>% 
+  slice_head(n = 25) 
+
 selected_fire_perimeter <- fire_perimeters %>% 
   filter(fireid  == FIRE_ID) %>%
   project(crs(rast_burn_severity))
 
 dnbr_in_perimeter <- rast_burn_severity %>% 
-  mask(ext(selected_fire_perimeter), updatevalue = NA) %>% 
+  # mask(selected_fire_perimeter, updatevalue = NA) %>%
   crop(ext(selected_fire_perimeter))
 
 # Load sample points (with associated burn dates)
@@ -87,25 +101,32 @@ sample_points <- vect(fname_sample_points) %>%
 # Define x-axis: Days since fire (from -50 to +30)
 days_since_burn <- seq(-50, 30, by = 1)  # Pre-fire (-50 to 0), Post-fire (0 to 30)
 
+# Load model dataframe
+frac_int <- 1
+fname_model_data <-  paste0(
+  TABLE_DIR,sprintf("model_dataframes/%spct/final_model_dataframe_nocumsum.csv",frac_int))
+
+df_allfires <- read_csv2(fname_model_data)
+
 # 2. Construct Figure 1 ----
-FONT_SIZE <- 18
+FONT_SIZE <- 20
 
 ## a. Figure 1a) - Overview map ----
 fig_1a <- ggdraw() + 
-  draw_image('figures/Figure_1a.png', scale = 1) +
+  draw_image('figures/manuscript/Figure_1a.png', scale = 1) +
   theme(plot.margin = unit(c(0,0,0,0), "cm"))
 
 ## b. Figure 1b) - burned area over time ----
 (fig_1b <- ggplot(topN_fires,aes(x = tst_year, y = farea *100)) +
     geom_bar(stat = 'identity', fill = "#730000") +
     labs(x = "Fire Year",
-         y = "Total annual burned area of studied fires (ha)") +
+         y = "Total burned area of studied fires (ha)") +
     theme_cowplot(FONT_SIZE) +
     theme(legend.position = "bottom"))
 
 if (SAVE_FIGURES){
-  ggsave2(fig_1b,filename = "figures/Figure_1b.png", bg ="white",
-          width = 6, height = 7)
+  ggsave2(fig_1b,filename = "figures/manuscript/Figure_1b.png", bg ="white",
+          width = 5, height = 6)
 }  
 
 ## c. Plot Figure 1c) - Plot map of fire scar ----
@@ -123,28 +144,42 @@ dy <- (ext(dnbr_in_perimeter)[4] - ext(dnbr_in_perimeter)[3])
 xtext <- ext(dnbr_in_perimeter)[1] + dx *.2
 ytext <- ext(dnbr_in_perimeter)[4] - dy *.3
 
+# create inverse mask for plotting
+extent_rect <- as.polygons(ext(dnbr_in_perimeter))
+crs(extent_rect) <- crs(dnbr_in_perimeter)
+plot_mask <- erase(extent_rect, selected_fire_perimeter)
+
+
 (fig_1c <- ggplot() +
     geom_spatraster(data = dnbr_in_perimeter) +
+    geom_spatvector(data = selected_fire_perimeter, fill = NA,
+                    color = "black",linewidth = 2,show.legend = FALSE) +
+    geom_spatvector(data = plot_mask, color = NA,fill = "white",alpha = 0.8) +
+    # Plot sample points
+    # white outline
+    geom_spatvector(data = plot_points,
+                    size = 9, color = "white", show.legend = FALSE) +
+    # colored
     geom_spatvector(data = plot_points,
                     aes(color = as.factor(point_index)),
                     size = 7,show.legend = FALSE) +
-    geom_spatvector(data = selected_fire_perimeter, fill = NA,
-                    color = "black",linewidth = 1,show.legend = FALSE) +
     # annotate perimeter
     annotate("segment",
              x = xtext - 500, xend = 630000, y = ytext - 1300, yend = 7920000,
              colour = "black",linewidth = 1) +
     geom_text(aes(x = xtext - 800, y = ytext,
                   label = 'Fire \nperimeter',fontface = 'bold'),
-              size = 5,
+              size = 7,
               colour = 'black') +
-    scale_fill_continuous_diverging(palette = "Broc", na.value = "white",
-                                    rev = FALSE,name = "Burn Severity (dNBR)",
-                                    guide = guide_colourbar(
-                                      title.position = "top",
-                                      title.hjust = 0.5,
-                                      barwidth = unit(20, "lines"))) +
-    scale_color_viridis_d(end = 0.8, option = "inferno") +
+    scale_fill_viridis_c(option = "inferno",
+                         na.value = "white",
+                         name = "Burn severity (dNBR)",
+                         limits = c(-0.5, 1.1),
+                         guide = guide_colourbar(
+                           title.position = "top",
+                           title.hjust = 0.5,
+                           barwidth = unit(20, "lines"))) +
+    scale_color_scico_d(palette = "turku", end = .8,direction = -1) +
     # labs(title = "a) Sampling data in fire perimeter.") +
     theme_map(FONT_SIZE) +
     theme(legend.position = "bottom",
@@ -152,12 +187,14 @@ ytext <- ext(dnbr_in_perimeter)[4] - dy *.3
 )
 
 if (SAVE_FIGURES){
-  ggsave2(fig_1c,filename = "figures/Figure_1c.png",
-          width = 8, height = 6,bg = "white")
+  ggsave2(fig_1c,filename = "figures/manuscript/Figure_1c.png",
+          width = 9.65, height = 7,bg = "white")
 }
 
 ## d. Plot Figure 1d) - NDMI curves ----
 point_index <- c(335 ,520 ,301)
+
+facet_labels <- setNames(paste(c("Low","Moderate","High"),"\nmoisture levels"),point_index)
 
 df_transformed <- df_allfires %>% 
   filter(fireid == FIRE_ID, ObservationID %in% point_index) %>% 
@@ -167,35 +204,47 @@ df_transformed <- df_allfires %>%
     names_to = "d_prefire_name",
     values_to = "NDMI_fit"
   ) %>%
-  mutate(d_prefire = as.integer(str_extract(d_prefire_name, "\\d+"))) %>%
+  mutate(ObservationID = factor(ObservationID, levels = point_index),
+         d_prefire = as.integer(str_extract(d_prefire_name, "\\d+"))) %>%
   filter(d_prefire > 0 & d_prefire <= 30)
 
 df_filtered_obs <- df_allfires %>% 
   filter(fireid == FIRE_ID, ObservationID %in% point_index) %>%
-  mutate(d_prefire = burn_doy - doy,
-         ObservationID = factor(ObservationID, levels = point_index),) %>%
+  mutate(d_prefire = burn_doy - yday(date),
+         ObservationID = factor(ObservationID, levels = point_index),
+         label = as.character(facet_labels[as.character(ObservationID)])) %>%
   filter(d_prefire > 0 & d_prefire <= 30)
 
-facet_labels <- setNames(paste(c("Low","Moderate","High"),"\nmoisture levels"),point_index)
+df_line_labels <- df_transformed %>%
+  group_by(ObservationID) %>%
+  filter(d_prefire == max(d_prefire, na.rm = TRUE)) %>%
+  ungroup() %>%
+  left_join(df_filtered_obs %>% select(ObservationID, label), by = "ObservationID")
 
-(fig_1d <- ggplot() +
-  geom_point(data = df_filtered_obs, aes(x = d_prefire, y = DailyMeanNDMI,
-                                         color = as.factor(ObservationID)),
-             show.legend = FALSE) +
-  geom_line(data = df_transformed, aes(x = d_prefire, y = NDMI_fit), 
-            color = "blue") +
-  geom_vline(xintercept = 0,lty = "dashed") +
-  facet_wrap(~ ObservationID, labeller = as_labeller(facet_labels)) +
-  scale_color_viridis_d(end = 0.8, option = "inferno") +
-  labs(
-    x = "Days Before Fire", 
-    y = "NDMI" ) +
-  scale_x_reverse() +
-  theme_cowplot(FONT_SIZE))
+
+(fig_1d <- ggplot(data = df_transformed, aes(x = d_prefire, y = NDMI_fit,
+                                             group = ObservationID,
+                                             color = ObservationID)) +
+    geom_point(data = df_filtered_obs, aes(x = d_prefire, y = DailyMeanNDMI,
+                                           color = ObservationID),
+               show.legend = FALSE) +
+    geom_text(data = df_line_labels,
+              aes(x = d_prefire, y = NDMI_fit - .02, 
+                  label = label, color = ObservationID),
+              fontface = "bold",size = 6,
+              hjust = 0,nudge_x = 0.5,
+              show.legend = FALSE) +
+    geom_line(linewidth = 1.75,show.legend = FALSE) +
+    geom_vline(xintercept = 0,lty = "dashed") +
+    scale_color_scico_d(palette = "turku", end = .8) +
+    labs(x = "Days Before Fire", y = "NDMI") +
+    lims(y = c(-.18,.12)) +
+    scale_x_reverse() +
+    theme_cowplot(FONT_SIZE))
 
 if (SAVE_FIGURES){
-  ggsave2(fig_1d,filename = "figures/Figure_1d.png",
-          width = 8, height = 4,bg = "white")
+  ggsave2(fig_1d,filename = "figures/manuscript/Figure_1d.png",
+          width = 6, height = 6,bg = "white")
 }
 
 ## e. Plot Figure 1e) - scatterplot for 10d pre fire ----
@@ -203,9 +252,9 @@ if (SAVE_FIGURES){
    geom_point(data = df_allfires %>% filter(fireid == FIRE_ID),
               aes(x = NDMI.d_prefire_12, y = dnbr_corr),
               color = "gray80", alpha = .2) +
-   geom_point(aes(x = c(-.15, 0, .15), y = c(.3, .15, -.15),
-                  color = as.factor(sort(point_index,decreasing = T))), size = 10) +
-   scale_color_viridis_d(end = 0.8, option = "inferno",direction = -1) +
+   geom_point(aes(x = c(-.12, 0, .1), y = c(.3, .15, -.15),
+                  color = as.factor(sort(point_index,decreasing = F))), size = 10) +
+   scale_color_scico_d(palette = "turku", end = .8) +
    labs(
      x = "NDMI 12 days before fire",
      y = "Burn Severity (dNBR)"
@@ -214,7 +263,7 @@ if (SAVE_FIGURES){
    theme(legend.position = "none"))
 
 if (SAVE_FIGURES){
-  ggsave2(fig_1e,filename = "figures/Figure_1e.png",
+  ggsave2(fig_1e,filename = "figures/manuscript/Figure_1e.png",
           width = 14, height = 6,bg = "white")
 }
 
@@ -225,10 +274,13 @@ CCDD
 EE##
 "
 
-pg <- fig_1a + fig_1b + fig_1c + fig_1d + fig_1e +
-  plot_layout(design = layout)
+(fig_1c + fig_1d) / fig_1e
 
-ggsave2(pg, "figures/Figure_1.png",bg = "white",width = 14, height = 18)
+# pg <- fig_1a + fig_1b + fig_1c + fig_1d + fig_1e +
+#   plot_layout(design = layout)
+
+ggsave2("figures/manuscript/Figure_1_bottom.png",
+        bg = "white",width = 18, height = 14)
 
 
 # old plot code ----
@@ -244,7 +296,7 @@ fig_1d <- ggplot(ndmi_data, aes(x = DaysSinceBurn, y = NDMI, color = Curve)) +
             color = NA, alpha = 0.7) +
   # geom_point(data = bars, aes(x = DaysSinceBurn,y = NDMI, color = Curve),
   #            size = 4 , shape = 18) +
-  labs(title = "b) Spline fitting and summing up...",
+  labs(title = "b) ",
        x = "Days since burn", y = "Metric for vegetation condition (here NDMI)") +
   scale_color_viridis_d(end = 0.8, option = "inferno") +
   scale_fill_viridis_d(end = 0.8, option = "inferno") +
@@ -284,7 +336,7 @@ fig_1c <- ndmi_data %>%
   geom_vline(xintercept = -10, linetype = "dashed",
              color = "grey40",alpha = 0.7) +  
   geom_hline(yintercept = 0, linetype = "solid", color = "black") +  
-  labs(title = "c) ...pre-fire vegetation conditions.",
+  labs(title = "c)",
        x = "Days since burn",
        y = TeX("Cumulative NDMI ($S_{NDMI}$)")) +
   scale_color_viridis_d(end = 0.8, option = "inferno") +

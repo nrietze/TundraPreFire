@@ -5,6 +5,7 @@ library(tidyverse)
 library(scales)
 library(latex2exp)
 library(terra)
+library(geostats)
 library(tidyterra)
 library(grid)
 library(patchwork)
@@ -26,6 +27,8 @@ if(OS == "Linux"){
   TABLE_DIR <- "data/tables/"
   DATA_DIR <- "data/"
 }
+
+FONT_SIZE <- 20
 
 # Output directory for sample tables
 OUT_DIR <- paste0(TABLE_DIR,"sampled_data/")
@@ -105,7 +108,12 @@ extract_burn_severity <- function(fire_perimeter, optimality_lut,
       filter(fireid == FIRE_ID,
              severity_index == "dNBR") %>% 
       pull(fname_severity_raster)
-  
+    
+    if (OS == "Windows"){
+      fname_optimal_severity_raster <- gsub("/home/nrietz/scratch","data",
+                                            fname_optimal_severity_raster)
+    }
+      
     rast_burn_severity <- rast(gsub("dNBR",burn_severity_index,
                                     fname_optimal_severity_raster))
     
@@ -115,7 +123,7 @@ extract_burn_severity <- function(fire_perimeter, optimality_lut,
     
     # Crop raster
     dnbr_in_perimeter <- rast_burn_severity %>% 
-      # mask(selected_fire_perimeter, updatevalue = NA) %>% 
+      mask(selected_fire_perimeter, updatevalue = NA) %>%
       crop(ext(selected_fire_perimeter))
     
     if (PLOT_MAP_HISTOGRAM){
@@ -170,14 +178,15 @@ sample_colors <- c("#E16A86", "#50A315", "#009ADE")
     labs(
       x = "Burn severity (dNBR)",
       y = "Density",
-      color = ""
+      color = "",
+      subtitle = "d)"
     ) +
     scale_color_manual(values = sample_colors, 
                        labels = c("lowland tundra (2020)",
                                   "upland tundra (2020)",
                                   "lowland tundra (2019)"),
                        guide = guide_legend(ncol = 1)) +
-    theme_cowplot() +
+    theme_cowplot(FONT_SIZE) +
     theme(
       legend.position = c(0.75, 0.95),
       legend.justification = c(0.5, 1),
@@ -185,7 +194,8 @@ sample_colors <- c("#E16A86", "#50A315", "#009ADE")
       legend.key = element_blank(),
       legend.title = element_blank(),
       panel.background = element_blank(),
-      panel.border = element_blank()
+      panel.border = element_blank(),
+      plot.subtitle=element_text(size=FONT_SIZE,face="bold")
     )
 )
 
@@ -198,6 +208,11 @@ plot_burn_severity_map <- function(fire_perimeter, optimality_lut,
     filter(fireid == FIRE_ID,
            severity_index == "dNBR") %>% 
     pull(fname_severity_raster)
+  
+  if (OS == "Windows"){
+    fname_optimal_severity_raster <- gsub("/home/nrietz/scratch","data",
+                                          fname_optimal_severity_raster)
+  }
   
   rast_burn_severity <- rast(gsub("dNBR",burn_severity_index,
                                   fname_optimal_severity_raster))
@@ -216,13 +231,13 @@ plot_burn_severity_map <- function(fire_perimeter, optimality_lut,
   plot_mask <- erase(extent_rect, selected_fire_perimeter)
   
   p <- ggplot() +
-    geom_spatraster(data = cropped_severity_raster, show.legend = FALSE) +
+    geom_spatraster(data = cropped_severity_raster, show.legend = TRUE) +
     geom_spatvector(data = selected_fire_perimeter, color = "white",fill = NA,
                     size = 2) +
     geom_spatvector(data = plot_mask, color = NA,fill = "white",alpha = 0.8) +
     scale_fill_viridis_c(option = "inferno",
                          na.value = "white",
-                         name = burn_severity_index,
+                         name = "Burn severity (dNBR)",
                          limits = c(-0.5, 1.1)) +
     theme_map(FONT_SIZE)
   
@@ -264,26 +279,177 @@ plot_burn_severity_map <- function(fire_perimeter, optimality_lut,
 
 }
 
-(p1 <- plot_burn_severity_map(fire_perimeter, optimality_lut,
+p1 <- plot_burn_severity_map(fire_perimeter, optimality_lut,
                               SAMPLE_ID[1], burn_severity_index) +
     theme(panel.border = element_rect(colour = sample_colors[1], 
-                                      fill=NA, linewidth=2)) )
+                                      fill=NA, linewidth=2),
+          plot.subtitle=element_text(size=FONT_SIZE,face="bold")) +
+  labs(subtitle = "a)")
 
-(p2 <- plot_burn_severity_map(fire_perimeter, optimality_lut,
+p2 <- plot_burn_severity_map(fire_perimeter, optimality_lut,
                               SAMPLE_ID[2], burn_severity_index) +
     theme(panel.border = element_rect(colour = sample_colors[2], 
-                                      fill=NA, linewidth=2)) )
+                                      fill=NA, linewidth=2),
+          plot.subtitle=element_text(size=FONT_SIZE,face="bold")) +
+  labs(subtitle = "b)")
 
-(p3 <- plot_burn_severity_map(fire_perimeter, optimality_lut,
+p3 <- plot_burn_severity_map(fire_perimeter, optimality_lut,
                               SAMPLE_ID[3], burn_severity_index) +
     theme(panel.border = element_rect(colour = sample_colors[3], 
-                                      fill=NA, linewidth=2)) )
-  
+                                      fill=NA, linewidth=2),
+          plot.subtitle=element_text(size=FONT_SIZE, face="bold")) +
+  labs(subtitle = "c)")
 
 # 5. Create Figure 2 ----
-pg <- p1 + p2 + p3 + p_dens
+pg <- p1 + p2 + p3 + p_dens + 
+  # plot_annotation(tag_levels = 'a',tag_suffix = ")") +
+  plot_layout(guides = 'collect') &
+  theme(plot.tag.position = c(-0.03, 1),
+        plot.tag = element_text(size = FONT_SIZE, hjust = 0, vjust = 0),
+        plot.margin = margin(t = 5, r = 5, b = 5, l = 20))
 
-ggsave2(pg,filename = "figures/Figure_2.png",
-        bg = "white", width = 10,height = 10)
+ggsave2(pg,filename = "figures/manuscript/Figure_2.png",
+        bg = "white", width = 13,height = 10)
 
 
+# 6. Check semivariogram & dNBR spatial heterogeneity ----
+FIRE_ID <- SAMPLE_ID[1]
+
+fname_optimal_severity_raster <- optimality_lut %>% 
+  filter(fireid == FIRE_ID,
+         severity_index == "dNBR") %>% 
+  pull(fname_severity_raster)
+
+if (OS == "Windows"){
+  fname_optimal_severity_raster <- gsub("/home/nrietz/scratch","data",
+                                        fname_optimal_severity_raster)
+}
+
+rast_burn_severity <- rast(gsub("dNBR",burn_severity_index,
+                                fname_optimal_severity_raster))
+
+selected_fire_perimeter <- fire_perimeters %>% 
+  filter(fireid  == FIRE_ID) %>%
+  project(crs(rast_burn_severity))
+
+# Crop raster
+cropped_severity_raster <- rast_burn_severity %>% 
+  crop(ext(selected_fire_perimeter))
+
+## a. fit semivariogram ----
+points_df <- as.data.frame(mask(cropped_severity_raster, selected_fire_perimeter,
+                                updatevalue = NA),
+                           xy = TRUE, na.rm = TRUE)
+colnames(points_df)[3] <- "value"
+
+sampled_df <- sample_frac(points_df,.1)
+sv <- semivariogram(x = sampled_df$x,y = sampled_df$y,
+                    z = sampled_df$value,
+                    bw = 30, nb = 100)
+
+# plot semivariogram
+df_sv <- data.frame(distance = sv$h, gamma = sv$sv)
+
+ggplot(df_sv, aes(x = distance,y = gamma)) +
+  geom_point() + 
+  geom_vline(aes(xintercept = sv$snr[3]), lty = "dashed", color = "gray40") +
+  annotate("text", x = sv$snr[3], y = max(df_sv$gamma),
+           label = sprintf("Effective range = %.0f m",sv$snr[3]),
+           size = 5, color = "grey40") +
+  labs(x = "Distance (m)", y = "Semivariance (spherical)") +
+  theme_cowplot()
+
+ggsave2(filename = sprintf("figures/dNBR_corr_semivariogram_%s.png",FIRE_ID),
+        width = 10,height = 10, bg = "white")
+
+
+## b. Calculate focal statistics ----
+mu_dnbr_in_perimeter <- focal(cropped_severity_raster,w = 33,fun = "mean",na.policy = "all",na.rm = T)
+names(mu_dnbr_in_perimeter) <- "dNBR_mean"
+sd_dnbr_in_perimeter <- focal(cropped_severity_raster,w = 33,fun = "sd",na.policy = "all",na.rm = T)
+names(sd_dnbr_in_perimeter) <- "dNBR_sd"
+cv_dnbr_in_perimeter <- sd_dnbr_in_perimeter  / mu_dnbr_in_perimeter
+names(cv_dnbr_in_perimeter) <- "dNBR_cv"
+
+df_cv <- c(sd_dnbr_in_perimeter,
+           mu_dnbr_in_perimeter,
+           cv_dnbr_in_perimeter) %>% 
+  mask(selected_fire_perimeter, updatevalue = NA) %>% 
+  as.data.frame()
+
+# Plot std.dev. vs. mean dNBR
+p <- df_cv %>% drop_na() %>% sample_frac(.2) %>% 
+  ggplot(aes(x = dNBR_mean,y = dNBR_sd)) + 
+  geom_point(alpha = 0.05) + 
+  labs(x = "Focal mean dNBR", y = "std. dev. dNBR") + 
+  theme_cowplot(18)
+
+p2 <- ggExtra::ggMarginal(p, type="density")
+
+ggsave2(p2, filename = sprintf("figures/dNBR_corr_sd_vs_mean_focal_33_%s.png",FIRE_ID),
+        width = 10,height = 10, bg = "white")
+
+# Plot CV vs.dNBR
+df_cv %>% sample_frac(.2) %>% 
+  ggplot(aes(x = dNBR_mean,y = dNBR_cv)) + 
+  geom_point(alpha = 0.1) + 
+  labs(x = "Focal mean dNBR", y = "CV dNBR") + 
+  lims(y = c(-5,5)) +
+  theme_cowplot(18)
+
+# 7. Burn severity vs. burned area ----
+df1 <- df_burn_severity %>% left_join(fire_perimeters %>% 
+                                        as.data.frame() %>% 
+                                        select(fireid, farea) %>% 
+                                        mutate(FIRE_ID = as.factor(fireid)),
+                                      by = "FIRE_ID")
+df2 <- df1 %>% summarize(avg_dnbr = mean(!!sym(burn_severity_index)),
+                         sd_dnbr = sd(!!sym(burn_severity_index)),
+                         cv_dnbr = sd(!!sym(burn_severity_index)) /mean(!!sym(burn_severity_index)),
+                         farea = first(farea),
+                         .by = FIRE_ID)
+
+ggplot(df2, aes(x = farea,y = avg_dnbr)) +
+  geom_smooth(method = "lm",color = "black") +
+  geom_point(size = 5, alpha = .7) + 
+  scale_x_log10() +
+  labs(x = "Burned area (ha)", y = "Average burn severity (dNBR)") +
+  theme_cowplot(18)
+
+ggsave(sprintf("figures/burned_area_vs_mean_%s_relationship.png",burn_severity_index),
+       width = 8, height = 8, bg = "white")
+
+mod1 <- lm(avg_dnbr ~ log10(farea), data = df2)
+summary(mod1)
+
+
+# 8. Check variation of dNBR distributions of one UTM tile ----
+flist <- list.files(path = paste0(HLS_DIR,"/severity_rasters/"),
+                    pattern = "^dNBR_corr_54WXE_2019.*tif$", full.names = T)
+
+dnbr_rasters <- rast(flist) 
+names(dnbr_rasters) <- lapply(sources(dnbr_rasters), 
+                              function(x) str_split(basename(tools::file_path_sans_ext(x)),"_",simplify = T)[4])
+
+perimeter_in_54wxe <- fire_perimeters %>% 
+  filter(fireid == 21286) %>% 
+  project(crs(dnbr_rasters))
+  
+cropped_dnbr_rasters <- dnbr_rasters %>% 
+  crop(perimeter_in_54wxe) %>% 
+  mask(perimeter_in_54wxe,updatevalue = NA)
+
+df_dnbr_rasters <- as.data.frame(cropped_dnbr_rasters) %>% 
+  drop_na() %>% 
+  as_tibble() %>% 
+  pivot_longer(cols = tidyr::everything(), values_to = "dNBR", names_to = "date") %>% 
+  mutate(date = ymd(date),
+         date_fct = as.factor(date)) %>% 
+  filter(date >= ymd(paste(c(perimeter_in_54wxe$ted_year,
+                             perimeter_in_54wxe$ted_month,
+                             perimeter_in_54wxe$ted_day),collapse = "-")))
+
+ggplot(df_dnbr_rasters, aes(x = dNBR, group = date_fct, color = date_fct)) +
+  geom_density() + 
+  scale_color_scico_d(palette = "lajolla") +
+  theme_cowplot(FONT_SIZE)

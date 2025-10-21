@@ -203,7 +203,7 @@ if (length(TEST_ID)>0){
 
 # Load model dataframe
 fname_model_data <-  paste0(
-  TABLE_DIR,sprintf("model_dataframes/%spct/final_model_dataframe.csv",frac_int))
+  TABLE_DIR,sprintf("model_dataframes/%spct/final_model_dataframe_nocumsum.csv",frac_int))
 
 if (file.exists(fname_model_data)){
   
@@ -465,7 +465,7 @@ if (SAVE_FIGURES){
 ### ii. Lineplots NDMI time series ----
 obsid_per_fire <- df_subset %>%
   group_by(fireid) %>%
-  summarize(random_obsid = sample(unique(ObservationID), 10), .groups = "drop")
+  summarize(random_obsid = sample(unique(ObservationID), 15), .groups = "drop")
 
 df_subset_filtered <- df_subset %>% 
   inner_join(obsid_per_fire, by = "fireid") %>%
@@ -525,7 +525,48 @@ if (SAVE_FIGURES){
 }
 
 
-### iii. Scatterplot NDMI vs. LST ----
+### iii. Boxplots NDMI pre-fire ----
+SAMPLE_ID <- 20922
+
+p_ndmi_box <- df_subset_transformed %>% 
+  distinct(random_obsid,fireid,d_prefire, .keep_all = T) %>% 
+  filter(fireid == SAMPLE_ID) %>% 
+  ggplot(aes(x = d_prefire, y = NDMI_fit)) +
+  geom_point(position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+  geom_boxplot(aes(group = d_prefire), outlier.shape = NA, alpha = 0.8) +
+  geom_vline(xintercept = 0,lty = "dashed") +
+  # facet_wrap(~fireid) +
+  labs(
+    x = "Days Before Fire", 
+    y = "NDMI"
+  ) +
+  scale_x_reverse() +
+  theme_cowplot()
+
+p_ndvi_box <- df_subset_transformed %>% 
+  distinct(random_obsid,fireid,d_prefire, .keep_all = T) %>% 
+  filter(fireid == SAMPLE_ID) %>% 
+  ggplot(aes(x = d_prefire, y = NDVI_fit)) +
+  geom_point(position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+  geom_boxplot(aes(group = d_prefire), outlier.shape = NA, alpha = 0.8) +
+  geom_vline(xintercept = 0,lty = "dashed") +
+  # facet_wrap(~fireid) +
+  labs(
+    x = "Days Before Fire", 
+    y = "NDVI"
+  ) +
+  scale_x_reverse() +
+  theme_cowplot()
+
+p_ndmi_box / p_ndvi_box +
+  plot_layout(axes = "collect")
+
+ggsave2(filename = sprintf("figures/VegIndex_boxplot_time_series_%s_%s.png",
+                           burn_severity_index,SAMPLE_ID),
+        width = 8,height = 6,bg = "white")
+
+
+### iv. Scatterplot NDMI vs. LST ----
 ggplot(df_subset) +
   geom_point(aes(x = DailyMeanNDMI,y = LST,color = !!sym(burn_severity_index)),
              alpha = .5) +
@@ -935,12 +976,14 @@ gt_table
 ## a. mixed model ----
 
 # Function to run lm and extract statistics
-run_lm_day <- function(day,y_var, data) {
+run_lm_day <- function(day,y_var, data, fileConn) {
   ndvi_var <- paste0("NDVI.d_prefire_", day)
   ndmi_var <- paste0("NDMI.d_prefire_", day)
   lst_var <- paste0("lst_pred_d_prefire_", day)
   
-  predictors <- c(ndvi_var, ndmi_var,lst_var, 
+  predictors <- c(ndvi_var, 
+                  ndmi_var,
+                  lst_var, 
                   "elevation", "slope", "northness", "eastness",
                   "burn_doy_scaled")
   fixed_effects <- paste(predictors, collapse = " + ")
@@ -948,6 +991,13 @@ run_lm_day <- function(day,y_var, data) {
   
   model <- lmerTest::lmer(formula, data = data, REML = FALSE)
   model_summary <- summary(model)
+  
+  # write collinearity check to file
+  collinearity_output <- capture.output(performance::check_collinearity(model))
+  
+  writeLines(paste("Model for day:", day), fileConn)
+  writeLines(collinearity_output, fileConn)
+  writeLines("\n--------------------------\n", fileConn)
   
   # Extract fixed effect estimates
   coefs <- fixef(model)  # Named vector
@@ -998,21 +1048,28 @@ run_lm_day <- function(day,y_var, data) {
   ))
 }
 
-burn_severity_index <- "dgemi"
+burn_severity_index <- "rbr"
 
 # subset of upper 75th percentile
 df_subset <- df_allfires %>% 
   group_by(fireid) %>% 
   # filter(dnbr >= 0.245) %>%  # (threshold from Kolden et al. 2012)
-  filter(quantile(!!sym(burn_severity_index), 0.75,na.rm=T)<!!sym(burn_severity_index)) %>% 
+  filter(quantile(dnbr_corr, 0.75,na.rm=T)<dnbr_corr) %>% 
   ungroup()
+
+# Set up file for collinearity checks
+collinearity_file <- sprintf("data/models/%s_collinearity_test.txt",burn_severity_index)
+fileConn <- file(collinearity_file, open = "a") # open file
 
 # only model dNBR above burned threshold
 model_results_by_day <- pblapply(1:30, function(day) {
   run_lm_day(y_var = burn_severity_index,
              day = day,
-             data = df_subset)
+             data = df_subset, 
+             fileConn = fileConn)
 })
+
+close(fileConn)
 
 # combine fixed effects
 fixed_effects_all <- bind_rows(lapply(model_results_by_day, `[[`, "fixed_effects"))
@@ -1054,87 +1111,6 @@ combine_random_effects <- function(group) {
 fireid_re_df <- combine_random_effects("fireid")
 raster_doy_re_df <- combine_random_effects("raster_doy")
 
-## b. Plot model results ----
-
-### i. R2 curves ----
-max_r2_day <- results_clean %>%
-  filter(r_squared_marg == max(r_squared_marg, na.rm = TRUE)) %>%
-  select(days_before_fire, r_squared_marg) %>% 
-  distinct()
-
-max_day <- max_r2_day$days_before_fire
-max_r2 <- max_r2_day$r_squared_marg
-
-s <- sprintf("Maximum marginal R² is \n %s days before the fire", max_day)
-
-ylims <- c(0, 0.25)
-
-(p_r2_marg <- ggplot(results) + 
-    geom_point(aes(x = days_before_fire, y = r_squared_marg)) +
-    geom_vline(aes(xintercept = max_day), lty = "dashed") +
-    annotate("text", x = max_day + 11, y = ylims[2] - .1,
-             label = s,
-             size = 5, color = "grey40") +
-    geom_curve(aes(x = max_day + 13, y = ylims[2] - .11, 
-                   xend = max_day, yend = max_r2 -0.005),
-               arrow = arrow(length = unit(0.08, "inch")), linewidth = 1,
-               color = "grey40", curvature = 0.3) +
-    scale_x_reverse() +
-    scale_y_continuous(breaks = seq(ylims[1],ylims[2],.05),
-                       labels = seq(ylims[1],ylims[2],.05),
-                       limits = ylims
-    ) +
-    labs(x = "Days before fire", y = expression("marginal"~R^2)) + 
-    theme_cowplot(FONT_SIZE) )
-
-if (SAVE_FIGURES){
-  ggsave2(p_r2_marg,filename = sprintf("figures/Figure_3a_%s.png",burn_severity_index),
-          width = 8,height = 8,bg = "white")
-}
-
-max_r2_cond_day <- results_clean %>%
-  filter(r_squared_cond == max(r_squared_cond, na.rm = TRUE)) %>%
-  select(days_before_fire, r_squared_cond) %>% 
-  distinct()
-
-max_cond_day <- max_r2_cond_day$days_before_fire
-max_cond_r2 <- max_r2_cond_day$r_squared_cond
-
-s_cond <- sprintf("Maximum conditional R² is \n %s days before the fire", max_cond_day)
-
-ylims <- c(0.6, 0.8)
-
-(p_r2_cond <- ggplot(results) + 
-    geom_point(aes(x = days_before_fire, y = r_squared_cond)) +
-    geom_vline(aes(xintercept = max_cond_day), lty = "dashed") +
-    annotate("text", x = max_cond_day + 8, y = max_cond_r2 + .05,
-             label = s_cond,
-             size = 5, color = "grey40") +
-    geom_curve(aes(x = max_cond_day + 8, y = max_cond_r2 + .035, 
-                   xend = max_cond_day, yend = max_cond_r2 + 0.005),
-               arrow = arrow(length = unit(0.08, "inch")), linewidth = 1,
-               color = "grey40", curvature = 0.3) +
-    scale_x_reverse() +
-    labs(x = "Days before fire", y = "conditional R²") + 
-    scale_y_continuous(breaks = seq(ylims[1],ylims[2],.05),
-                       labels = seq(ylims[1],ylims[2],.05),
-                       limits = ylims
-                       ) +
-    theme_cowplot(FONT_SIZE) )
-
-if (SAVE_FIGURES){
-  ggsave2(p_r2_cond,filename = sprintf("figures/Figure_3b_%s.png",burn_severity_index),
-          width = 8,height = 8,bg = "white")
-}
-
-p_r2_marg / p_r2_cond + 
-  plot_annotation(tag_levels = "a", tag_suffix = ')')
-
-if (SAVE_FIGURES){
-  ggsave2(filename = sprintf("figures/Figure_3_%s.png",burn_severity_index),
-          width = 8,height = 8,bg = "white")
-}
-
 # find maxima of each predictor
 ndmi_max_d <- results_clean %>%
   filter(base_predictor == "NDMI") %>%
@@ -1160,42 +1136,6 @@ mod_labs <- c(
   eastness = "Eastness"
 )
 
-results_clean %>%
-  mutate(
-    base_predictor = factor(base_predictor, levels = names(mod_labs)),
-    significant = p_val < 0.05,
-    alpha_val = ifelse(significant, 1, 0.5)
-  ) %>%
-  filter(base_predictor %in% c("NDVI", "NDMI", "LST",
-                               "elevation", "slope", "northness", "eastness", 
-                               "burn_doy_scaled")) %>%
-  ggplot(aes(
-    x = days_before_fire,
-    y = coef,
-    color = base_predictor,
-    alpha = alpha_val,
-    group = base_predictor
-  )) +
-  geom_point() +
-  geom_errorbar(aes(
-    ymin = coef - std_err,
-    ymax = coef + std_err
-  ), width = 0.5) +
-  geom_hline(yintercept = 0, lty = "dashed") +
-  scale_x_reverse() +
-  facet_wrap(~ base_predictor,
-             scales = "free_y", 
-             labeller = as_labeller(mod_labs),
-             nrow = 2) +
-  labs(x = "Days before fire", y = "Effect size (coefficient)") +
-  scale_alpha_identity() +
-  theme_cowplot(FONT_SIZE) +
-  theme(legend.position = "none")
-
-if (SAVE_FIGURES){
-  ggsave2(filename = sprintf("figures/Figure_2_%s.png",burn_severity_index),
-          width = 14,height = 8,bg = "white")
-}
 
 ### Random effects ----
 cols <- colnames(fireid_re_df)
