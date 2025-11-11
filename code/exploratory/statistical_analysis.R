@@ -1,25 +1,30 @@
-library(terra)
-library(tidyterra)
-library(spatstat.utils)
-library(tidyverse)
-library(cowplot)
-library(patchwork)
-library(colorspace)
-library(lubridate)
-library(pbapply)
-library(lme4)
-library(lmerTest)
-library(performance)
-library(sjPlot)
-library(tictoc)
-library(mclust)
-library(gt)
-library(latex2exp)
+suppressPackageStartupMessages({
+  library(terra)
+  library(tidyterra)
+  library(spatstat.utils)
+  library(tidyverse)
+  library(cowplot)
+  library(patchwork)
+  library(colorspace)
+  library(lubridate)
+  library(pbapply)
+  library(lme4)
+  library(lmerTest)
+  library(performance)
+  library(sjPlot)
+  library(tictoc)
+  library(mclust)
+  library(gt)
+  library(latex2exp)
+})
+
 set.seed(10)
 
 # 0. Set up functions ----
 # ========================.
-load_data <- function(fire_attrs,burn_severity_index,frac_int,
+load_data <- function(fire_attrs,
+                      burn_severity_index,
+                      frac_int,
                       return_df_only = FALSE){
   # Fire perimeter attributes
   UTM_TILE_ID <- fire_attrs$opt_UTM_tile
@@ -179,7 +184,8 @@ df_optimal_raster_doy <- optimality_lut %>%
          raster_doy = yday(date_raster)) %>% 
   mutate(raster_doy_scaled = raster_doy / 366,
          raster_doy = as.factor(raster_doy)) %>% 
-  select(raster_doy,raster_doy_scaled,fireid)
+  select(raster_doy,raster_doy_scaled,fireid) %>% 
+  distinct()
 
 # Load fire perimeters
 fire_perimeters <- vect(
@@ -225,17 +231,47 @@ if (file.exists(fname_model_data)){
   write_csv2(df_allfires,fname_model_data )
 }
 
-# scale variables
-df_allfires <- df_allfires %>% 
-  mutate(fireid = as.factor(fireid),
-         doy = yday(date),
+## Assign FRP to dataframe ----
+concat_all_FRP <- function(FIRE_ID,DATA_DIR,frac_int){
+  fname_sample_points <-  paste0(
+    sprintf("%s/feature_layers/%spct/%s_sample_points_%spct_burn_date.gpkg",
+            DATA_DIR,frac_int,FIRE_ID,frac_int)
+  )
+  sample_points_sel <- vect(fname_sample_points) %>% 
+    mutate(ObservationID = 1:nrow(.)) %>% 
+    select(c(fireid,meanFRP,FRP95,ObservationID)) %>% 
+    as.data.frame()
+  
+  return(sample_points_sel)
+}
+
+FRP_df_list <- lapply(subset_lut$fireid,
+                      concat_all_FRP, 
+                      DATA_DIR = DATA_DIR,
+                      frac_int = frac_int)
+
+df_FRP <- do.call(rbind, FRP_df_list)
+
+# join & scale variables
+df_allfires_w_FRP <- df_allfires %>% 
+  relocate(fireid,.before = ObservationID) %>% 
+  inner_join(df_FRP, by = join_by(
+    fireid == fireid,
+    ObservationID == ObservationID
+  )) %>% 
+  mutate(fireid = as.factor(fireid)) %>% 
+  inner_join(df_optimal_raster_doy,
+            by = join_by(fireid == fireid)) %>% 
+  mutate(doy = yday(date),
          # scale predictors
          burn_doy_scaled = burn_doy / 366,
          elevation = scale(elevation)[,1],
+         meanFRP = scale(meanFRP)[,1],
+         FRP95 = scale(FRP95)[,1],
          across(contains("lst"), ~ as.numeric(scale(.)))) %>% 
-  left_join(df_optimal_raster_doy,
-            by = "fireid"
-  )
+  relocate(c(burn_doy,burn_doy_scaled,raster_doy,raster_doy_scaled),
+           .after = doy) %>% 
+  relocate(c(meanFRP,FRP95),.before = dnbr)
 
 # 2. Descriptive statistics ----
 # ==============================.
@@ -888,6 +924,85 @@ df_all_subset %>% sample_n(1e5) %>%
        color = "Burn class (Descals et al., 2022)") +
   theme_cowplot()
 
+## j. dNBR vs. FRP ----
+# Plot meanFRP vs. dNBR
+df_subset %>% sample_n(1e5) %>% 
+  ggplot(aes(x = !!sym(burn_severity_index),
+              y = meanFRP)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method='lm') +
+  labs(y = "Mean FRP [MW] \n (scaled & centered)",
+       x = burn_severity_index) +
+  facet_wrap(~fireid) +
+  theme_cowplot()
+
+ggsave2("figures/FRP_vs_dNBR/Scatter_FRP_vs_dNBR.png",
+        width = 10, height = 10,bg = "white")
+
+ggplot(df_subset,aes(x =  meanFRP)) +
+  geom_histogram() +
+  labs(x = "Mean FRP [MW] \n (scaled & centered)") +
+  theme_cowplot()
+
+ggsave2("figures/FRP_vs_dNBR/Histogram_FRP.png",
+        width = 10, height = 10,bg = "white")
+
+formula_frp <- as.formula(paste("meanFRP ~",
+                                burn_severity_index,
+                                " + (1 | fireid)"))
+model <- lmerTest::lmer(formula_frp, data = df_subset, 
+                        REML = FALSE)
+(model_summary <- summary(model))
+
+sink("figures/FRP_vs_dNBR/lmer_summary.txt")
+print(model_summary)
+sink()
+# check quantile steps of dnbr
+df_allfires_w_FRP$dnbr_quartile <- cut(
+  df_allfires_w_FRP$dnbr_corr,
+  breaks = quantile(df_allfires_w_FRP$dnbr_corr,
+                    probs = seq(0, 1, 0.25), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("Q1", "Q2", "Q3", "Q4")
+)
+library(rstatix)
+library(scico)
+library(ggpubr)
+stat.test <- df_allfires_w_FRP %>% 
+  sample_frac(0.2) %>%
+  kruskal_test(meanFRP ~ dnbr_quartile) %>%
+  add_significance()  # overall test
+
+pairwise.test <- df_allfires_w_FRP %>% 
+  sample_frac(0.2) %>%
+  dunn_test(meanFRP ~ dnbr_quartile, p.adjust.method = "bonferroni")
+
+# Format results for ggplot significance annotations
+pairwise.test <- pairwise.test %>%
+  add_xy_position(x = "dnbr_quartile")
+
+df_allfires_w_FRP %>% 
+  sample_frac(0.2) %>% 
+  drop_na(dnbr_corr) %>% 
+  ggplot(aes(x = dnbr_quartile, y = meanFRP, fill = dnbr_quartile)) +
+  geom_violin(alpha = 0.7, outlier.shape = NA, color = "gray30") +
+  # geom_jitter(aes(color = dnbr_quartile),
+  #             width = 0.15, alpha = 0.6, size = 2, show.legend = FALSE) +
+  # stat_pvalue_manual(pairwise.test, label = "p.adj.signif", tip.length = 0.01) +
+  scale_fill_scico_d(palette = "batlow") +
+  scale_color_scico_d(palette = "batlow") +
+  labs(
+    title = "FRP Distribution by dNBR Quartiles",
+    x = "dNBR Quartile",
+    y = "FRP"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.x = element_blank()
+  )
+
+
 # 3. Cluster data ----
 # ====================.
 burn_severity_index <- "dnbr_corr"
@@ -1048,10 +1163,10 @@ run_lm_day <- function(day,y_var, data, fileConn) {
   ))
 }
 
-burn_severity_index <- "rbr"
+burn_severity_index <- "dnbr_corr"
 
 # subset of upper 75th percentile
-df_subset <- df_allfires %>% 
+df_subset <- df_allfires_w_FRP %>% 
   group_by(fireid) %>% 
   # filter(dnbr >= 0.245) %>%  # (threshold from Kolden et al. 2012)
   filter(quantile(dnbr_corr, 0.75,na.rm=T)<dnbr_corr) %>% 
