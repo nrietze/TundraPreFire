@@ -647,6 +647,13 @@ if __name__ == "__main__":
     # Constants
     MAX_TIMEDELTA = 31
     OUT_FOLDER = "/home/nrietz/scratch/raster/hls/processed/"
+    
+    try:
+        os.makedirs(OUT_FOLDER, exist_ok=True)
+        print("Created output directories.")
+    except:
+        print("Output directories exist.")
+    
     bit_nums = [0, 1, 2, 3, 4]  # Bits to mask out
     
     num_workers = 4

@@ -13,6 +13,8 @@ else:
     DATA_FOLDER = '~/data/' # on sciencecluster
     OUTPUT_DIR = "/home/nrietz/scratch/raster/hls/" # Set original data paths
 
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
 lut_df = pd.read_csv(
     os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"),
@@ -29,6 +31,8 @@ UTM_TILE_FILE = sys.argv[1]
 
 with open(UTM_TILE_FILE, "r") as file:
     UTM_TILE_LIST = [line.strip() for line in file] 
+
+print("Downloading HLS tiles...",end = "\n")
 
 # Iterate through tiles and find corresponding year
 for TILE_ID in UTM_TILE_LIST:

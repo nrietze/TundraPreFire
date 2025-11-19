@@ -1,7 +1,7 @@
-# Fine-scale burn patterns in Siberian tundra fires - Code and Data Repository
-This repository contains the code and tabular data to generate the output for Rietze et al. (in prep.): Pre-fire Vegetation Conditions and Topography Shape Burn Mosaics of Siberian Tundra Fire Scars.
+# Bottom-Up Factors Best Predict Tundra Burn Severity Shortly Before Ignition
+This repository contains the code and tabular data to generate the output for Rietze et al. (in prep.): Bottom-Up Factors Best Predict Tundra Burn Severity Shortly Before Ignition.
 
-Last update to this readme: 11 November 2024.
+Last update to this readme: 19 November 2025.
 
 - [1. Repository structure](#1-repo-structure)
 - [2. Required data and software](#2-required-data-and-software)
@@ -15,71 +15,96 @@ Here is the structure of this repo, files have been excluded from this tree for 
 
 ```bash
 ├───code
-│   │
-│   │  ZOIB_model.R
-│   │
-│   ├───classification
-│   │   │  prep.R
-│   │   │  predict_burned_area.R
-│   │   │  predict_water.py
-│   │
+│   ├───data_processing
+│   ├───exploratory
 │   └───figures_and_tables
-│          Table_1.R
-│          figure_1.R
-│          figure_2.R
-│          figure_3.R
-│    
 ├───data
-│   └───geodata
-│       ├───feature_layers
-│       └───raster
-│
-├───figures  
-│
-└───tables
+│   ├───feature_layers
+│   │   ├───1pct
+│   │   ├───fire_atlas
+│   │   │   ├───ignitions
+│   │   │   └───sub_daily
+│   │   │       ├───2020
+│   │   │       │   ├───NFP
+│   │   │       │   └───Snapshot
+│   │   │       └───2022
+│   │   │           ├───NFP
+│   │   │           └───Snapshot
+│   │   ├───sample_points_filtered
+│   │   └───Sentinel2_MGRS_tiles.gdb
+│   ├───models
+│   ├───raster
+│   │   ├───arcticDEM
+│   │   ├───burned_area_descals
+│   │   ├───hls
+│   │   │   ├───optimality_rasters
+│   │   │   ├───processed
+│   │   │   ├───severity_rasters
+│   │   ├───landsat8
+│   │   │   └───lst
+│   └───tables
+│       ├───model_dataframes
+│       │   └───1pct
+│       └───sampled_data
+│           └───1pct
+├───figures
+│   ├───bad_filtering
+│   ├───burn_severity_maps
+│   ├───dnbr_correction
+│   ├───Figure_workflow
+│   ├───FRP_vs_dNBR
+│   └───manuscript
+└───tmp
 ```
 
-- The scripts in `classification` are used to prepare the PlanetScope imagery and run the random forest classification.
-  - `prep.R` is used to crop, rename and prepare raster files for the image classification.
-  - `predict_burned_area.R` is used to execute the classification of burned areas, performing validation and predicting the burned area maps.
-- The scripts in `figures_and_tables` are used to generate the main and supplementary figures as well as the supporting tables and are named appropriately.
-- The script `ZOIB_model.R` contains the code for the zero-one inflated beta regression. 
-- The folder `data` is empty and should contain the data that can be downloaded from Zenodo (see link on top).
+- The scripts in `code` are used to download and process HLS imagery. A visual overview of the processing steps is shown below:
+![Processing workflow for the project.](https://github.com/nrietze/TundraPreFire/blob/figures/Figure_workflow/code_workflow.png?raw=true)
+
+- `data_processing` contains the code to download HLS imagery from LPDAAC and Landsat LST, preprocess into spectral index rasters, and calculating burn severity rasters. It also contains R scripts to run the data extraction.
+- `exploratory` contains code for the spline fitting and statistical analysis.
+- The scripts in `figures_and_tables` are used to generate the main and supplementary figures as well as the supporting tables.
+- The folder `data` contains the data generated throughout the analysis and should contain data that can be downloaded from the external sources (e.g., ArcticDEM, Arctic-Boreal fire atlas), and Zenodo.
 - The folder `figures` contains the figures that are produced in the correspoinding scripts.
-- The folder `tables` contains the tables that are produced in the correspoinding scripts.
+- The folder `tables` contains the tables that are produced as intermediate dataframes in the data sampling steps during the data extraction.
 
 [\[back to content\]](#content)
 
 ## 2. Required data and software
-The necessary data to run the code is publicly available under [![DOI](https://img.shields.io/badge/DOI-10.5281/zenodo.12650945-blue)](https://doi.org/10.5281/zenodo.12650945).
+Raster data is automatically downloaded:
+- HLS from LPDAAC
+- ArcticDEM from the PGC server
+- Landsat-8 LST from Google Earth Engine
 
-The data pre-processing and data analysis was using R 4.2.2 (2022-10-31 ucrt). Newer versions of these software packages will likely work, but have not been tested.
+Feature layers delineating sub-daily (12h) and final fire perimeters can be downloaded from the Arctic-Boreal fire atlas:
+  Scholten, R., Chen, Y., Veraverbeke, S., & Randerson, J. (2024). Arctic-boreal fire atlas: 12-hourly perimeters of individual fires in the Arctic-boreal domain from 2012 to 2023 [Dataset]. PANGAEA. [https://doi.org/10.1594/PANGAEA.967653](https://doi.org/10.1594/PANGAEA.967653)
 
-Code development and processing were carried out in Windows 10 (64 bit), but execution should (in theory) be platform independent.
+The data pre-processing and data analysis was using python version 3.10.14 and R 4.2.2 (2022-10-31 ucrt). Newer versions of these software packages will likely work, but have not been tested.
+
+The remote processing on the S3IT servers of the University of Zurich was carried out on the same versions of R and python but running on a Linux system. The batch processing scripts were executed using SLURM [https://en.wikipedia.org/wiki/Slurm_Workload_Manager](https://en.wikipedia.org/wiki/Slurm_Workload_Manager) and not developed for other workload managing software.
 
 [\[back to content\]](#content)
 
 ## 3. Contact
-Code development and maintenance: Nils Rietze ([nils.rietze@uzh.ch](nils.rietze@uzh.ch))
+Code development and maintenance: Nils Rietze (nils.rietze [at] pm.me)
 
 [\[back to content\]](#content)
 
 ## 4. Acknowledgements
 
 From the manuscript:
-*N.R. was supported through the TRISHNA Science and Electronics Contribution (T-SEC), ESA PRODEX Trishna T-SEC project (PEA C4000133711). Field work and vegetation sample processing were conducted in the scope of State Assignment of the Ministry of Science and Higher Education of the Russian Federation (Project  АААА-А21-121012190038-0), using the equipment of the Centre for collective use of Federal Research Centre «Yakut Scientific Centre» (grant no. 13.TsKP.21.0016). We would like to thank Planet Labs for free access to PlanetScope imagery. We would like to thank Tim Gyger for helpful discussions regarding our statistical analysis. The authors declare no competing interests.*
+N.R. was supported through the TRISHNA Science and Electronics Contribution (T‐ SEC), ESA PRODEX Trishna T‐SEC project (PEA C4000133711). We would like to thank David S. Schimel and Charles E. Miller for constructive discussions regarding the interpretation of our results and Max van Gerrevink for his help regarding the optimality calculation.*
 
 [\[back to content\]](#content)
 
 ## 5. Citation
 When citing elements in this repository, please cite as:
 
-Rietze, N., Heim, R., Troeva, E., Schaepman-Strub, G., Assmann, J. J. (in prep.). Pre-fire Vegetation Conditions and Topography Shape Burn Mosaics of Siberian Tundra Fire Scars. 
+N. Rietze, G. Schaepman-Strub, K. R. Miner, and J.J. Assmann (in prep.). Bottom-Up Factors Best Predict Tundra Burn Severity Shortly Before Ignition.
 
 [\[back to content\]](#content)
 
 ## 6. License
-The scripts in this repository (*.R files) are licensed under the MIT license (see [license text](https://github.com/nrietze/SiberiaFires/blob/main/LICENSE)).<br>
+The scripts in this repository (*.R files) are licensed under the MIT license (see [license text](https://github.com/nrietze/TundraFires/blob/main/LICENSE)).<br>
 
 <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a><br />The remaining content in this repo is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</a>.
 

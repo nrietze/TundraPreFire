@@ -497,6 +497,12 @@ if __name__ == "__main__":
         PROCESSED_HLS_DIR ="/home/nrietz/scratch/raster/hls/processed" # Set original data paths
         OUT_FOLDER = "/home/nrietz/scratch/raster/hls/severity_rasters"
     
+    try:
+        os.makedirs(OUT_FOLDER, exist_ok=True)
+        print("Created output directories.")
+    except:
+        print("Output directories exist.")
+    
     # Load Processing look-up-table to match UTM tiles to fire perimeter IDs
     processing_lut = pd.read_csv(
         os.path.join(DATA_FOLDER,"tables/processing_LUT.csv"),

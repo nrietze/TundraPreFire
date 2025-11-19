@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH --job-name=arrayJob
-#SBATCH --time=0-08:00:00   ## days-hours:minutes:seconds
+#SBATCH --time=0-10:00:00   ## days-hours:minutes:seconds
 #SBATCH --array=0-19
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32   ## ask for 32 cpus (Use greater than 1 for parallelized jobs)
@@ -14,7 +14,7 @@ source activate lpdaac_vitals
 cd ~/TundraPreFire/
 
 # Toggle processing steps:
-RUN_HLS_DOWNLOAD=1
+RUN_HLS_DOWNLOAD=0
 RUN_HLS_PROCESSING=1
 RUN_SEVERITY_SCRIPT=1
 
@@ -26,7 +26,7 @@ fi
 
 if [ $RUN_HLS_PROCESSING = 1 ]; then
   # Execute HLS preprocessing script with the split UTM tile id file
-  metrics='["NDMI","NDVI","NBR","GEMI"]'
+  metrics='["NBR","GEMI"]'
 
   echo 'HLS preprocessing starting.'
   python code/data_processing/HLS_preprocessing.py tmp/task_${SLURM_ARRAY_TASK_ID}.txt "$metrics"

@@ -89,3 +89,8 @@ data/feature_layers/fire_atlas/sub_daily/*
 data/C2L2/*
 data/raster/hls/*
 data/feature_layers/sample_points_filtered/*
+figures/*.png
+figures/*.jpg
+figures/*.mp4
+figures/bad_filtering/*
+figures/FRP_vs_dNBR/*
