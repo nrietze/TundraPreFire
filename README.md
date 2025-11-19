@@ -58,8 +58,7 @@ Here is the structure of this repo, files have been excluded from this tree for 
 ```
 
 - The scripts in `code` are used to download and process HLS imagery. A visual overview of the processing steps is shown below:
-![Processing workflow for the project.](https://github.com/nrietze/TundraPreFire/blob/figures/Figure_workflow/code_workflow.png?raw=true)
-
+![Processing workflow for the project.](https://github.com/nrietze/TundraPreFire/blob/main/figures/Figure_workflow/code_workflow.png?raw=true)
 - `data_processing` contains the code to download HLS imagery from LPDAAC and Landsat LST, preprocess into spectral index rasters, and calculating burn severity rasters. It also contains R scripts to run the data extraction.
 - `exploratory` contains code for the spline fitting and statistical analysis.
 - The scripts in `figures_and_tables` are used to generate the main and supplementary figures as well as the supporting tables.
