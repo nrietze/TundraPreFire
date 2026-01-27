@@ -936,7 +936,7 @@ df_subset %>% sample_n(1e5) %>%
   facet_wrap(~fireid) +
   theme_cowplot()
 
-ggsave2("figures/FRP_vs_dNBR/Scatter_FRP_vs_dNBR.png",
+ggsave2("figures/FRP_vs_dNBR/Scatter_FRP_vs_dGEMI.png",
         width = 10, height = 10,bg = "white")
 
 ggplot(df_subset,aes(x =  meanFRP)) +
@@ -954,7 +954,7 @@ model <- lmerTest::lmer(formula_frp, data = df_subset,
                         REML = FALSE)
 (model_summary <- summary(model))
 
-sink("figures/FRP_vs_dNBR/lmer_summary.txt")
+sink("figures/FRP_vs_dNBR/lmer_summary_dgemi.txt")
 print(model_summary)
 sink()
 # check quantile steps of dnbr
