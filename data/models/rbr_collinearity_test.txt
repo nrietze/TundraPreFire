@@ -1,0 +1,510 @@
+Model for day: 1
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_1 1.14 [1.13, 1.14]         1.07      0.88     [0.87, 0.88]
+     NDMI.d_prefire_1 1.08 [1.08, 1.09]         1.04      0.92     [0.92, 0.93]
+ lst_pred_d_prefire_1 1.08 [1.08, 1.08]         1.04      0.93     [0.92, 0.93]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                slope 1.04 [1.04, 1.05]         1.02      0.96     [0.96, 0.96]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+      burn_doy_scaled 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 2
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_2 1.16 [1.15, 1.16]         1.08      0.86     [0.86, 0.87]
+     NDMI.d_prefire_2 1.11 [1.11, 1.12]         1.05      0.90     [0.90, 0.90]
+ lst_pred_d_prefire_2 1.08 [1.08, 1.09]         1.04      0.92     [0.92, 0.93]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                slope 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+      burn_doy_scaled 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 3
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_3 1.18 [1.18, 1.19]         1.09      0.85     [0.84, 0.85]
+     NDMI.d_prefire_3 1.16 [1.15, 1.16]         1.08      0.87     [0.86, 0.87]
+ lst_pred_d_prefire_3 1.08 [1.08, 1.09]         1.04      0.92     [0.92, 0.93]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                slope 1.08 [1.07, 1.08]         1.04      0.93     [0.93, 0.93]
+            northness 1.03 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+             eastness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+      burn_doy_scaled 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 4
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_4 1.22 [1.22, 1.23]         1.11      0.82     [0.81, 0.82]
+     NDMI.d_prefire_4 1.22 [1.22, 1.23]         1.10      0.82     [0.82, 0.82]
+ lst_pred_d_prefire_4 1.08 [1.08, 1.09]         1.04      0.92     [0.92, 0.93]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                slope 1.10 [1.10, 1.11]         1.05      0.91     [0.90, 0.91]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+      burn_doy_scaled 1.03 [1.03, 1.03]         1.01      0.97     [0.97, 0.97]
+
+--------------------------
+
+Model for day: 5
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_5 1.30 [1.29, 1.30]         1.14      0.77     [0.77, 0.78]
+     NDMI.d_prefire_5 1.32 [1.31, 1.32]         1.15      0.76     [0.76, 0.76]
+ lst_pred_d_prefire_5 1.08 [1.07, 1.08]         1.04      0.93     [0.92, 0.93]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                slope 1.14 [1.13, 1.14]         1.07      0.88     [0.88, 0.88]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+      burn_doy_scaled 1.03 [1.03, 1.03]         1.02      0.97     [0.97, 0.97]
+
+--------------------------
+
+Model for day: 6
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_6 1.41 [1.41, 1.42]         1.19      0.71     [0.71, 0.71]
+     NDMI.d_prefire_6 1.46 [1.45, 1.47]         1.21      0.69     [0.68, 0.69]
+ lst_pred_d_prefire_6 1.07 [1.07, 1.08]         1.04      0.93     [0.93, 0.94]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                slope 1.17 [1.17, 1.17]         1.08      0.85     [0.85, 0.86]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+      burn_doy_scaled 1.03 [1.03, 1.04]         1.02      0.97     [0.97, 0.97]
+
+--------------------------
+
+Model for day: 7
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_7 1.58 [1.58, 1.59]         1.26      0.63     [0.63, 0.63]
+     NDMI.d_prefire_7 1.65 [1.64, 1.66]         1.28      0.61     [0.60, 0.61]
+ lst_pred_d_prefire_7 1.06 [1.06, 1.07]         1.03      0.94     [0.94, 0.94]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                slope 1.20 [1.20, 1.20]         1.10      0.83     [0.83, 0.84]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+      burn_doy_scaled 1.03 [1.03, 1.04]         1.02      0.97     [0.97, 0.97]
+
+--------------------------
+
+Model for day: 8
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_8 1.77 [1.77, 1.78]         1.33      0.56     [0.56, 0.57]
+     NDMI.d_prefire_8 1.85 [1.84, 1.86]         1.36      0.54     [0.54, 0.54]
+ lst_pred_d_prefire_8 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                slope 1.22 [1.22, 1.23]         1.10      0.82     [0.82, 0.82]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+      burn_doy_scaled 1.03 [1.03, 1.03]         1.01      0.97     [0.97, 0.97]
+
+--------------------------
+
+Model for day: 9
+# Check for Multicollinearity
+
+Low Correlation
+
+                 Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_9 1.89 [1.88, 1.90]         1.37      0.53     [0.53, 0.53]
+     NDMI.d_prefire_9 1.95 [1.94, 1.96]         1.40      0.51     [0.51, 0.52]
+ lst_pred_d_prefire_9 1.04 [1.04, 1.05]         1.02      0.96     [0.95, 0.96]
+            elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                slope 1.23 [1.23, 1.24]         1.11      0.81     [0.81, 0.82]
+            northness 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+      burn_doy_scaled 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 10
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_10 1.85 [1.84, 1.86]         1.36      0.54     [0.54, 0.54]
+     NDMI.d_prefire_10 1.90 [1.89, 1.91]         1.38      0.53     [0.52, 0.53]
+ lst_pred_d_prefire_10 1.03 [1.03, 1.04]         1.02      0.97     [0.96, 0.97]
+             elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                 slope 1.23 [1.23, 1.24]         1.11      0.81     [0.81, 0.82]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 11
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_11 1.72 [1.71, 1.73]         1.31      0.58     [0.58, 0.59]
+     NDMI.d_prefire_11 1.75 [1.74, 1.76]         1.32      0.57     [0.57, 0.57]
+ lst_pred_d_prefire_11 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+             elevation 1.05 [1.05, 1.05]         1.02      0.95     [0.95, 0.96]
+                 slope 1.23 [1.22, 1.23]         1.11      0.82     [0.81, 0.82]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+
+--------------------------
+
+Model for day: 12
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_12 1.56 [1.55, 1.56]         1.25      0.64     [0.64, 0.65]
+     NDMI.d_prefire_12 1.58 [1.58, 1.59]         1.26      0.63     [0.63, 0.63]
+ lst_pred_d_prefire_12 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.95     [0.95, 0.96]
+                 slope 1.22 [1.21, 1.22]         1.10      0.82     [0.82, 0.82]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+
+--------------------------
+
+Model for day: 13
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_13 1.42 [1.41, 1.42]         1.19      0.71     [0.70, 0.71]
+     NDMI.d_prefire_13 1.44 [1.43, 1.44]         1.20      0.70     [0.69, 0.70]
+ lst_pred_d_prefire_13 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.95     [0.95, 0.96]
+                 slope 1.21 [1.21, 1.22]         1.10      0.83     [0.82, 0.83]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+
+--------------------------
+
+Model for day: 14
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_14 1.31 [1.31, 1.32]         1.15      0.76     [0.76, 0.77]
+     NDMI.d_prefire_14 1.33 [1.32, 1.33]         1.15      0.75     [0.75, 0.76]
+ lst_pred_d_prefire_14 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.96     [0.95, 0.96]
+                 slope 1.20 [1.20, 1.21]         1.10      0.83     [0.83, 0.83]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 15
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_15 1.23 [1.23, 1.24]         1.11      0.81     [0.81, 0.81]
+     NDMI.d_prefire_15 1.25 [1.24, 1.25]         1.12      0.80     [0.80, 0.81]
+ lst_pred_d_prefire_15 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.96     [0.95, 0.96]
+                 slope 1.20 [1.19, 1.20]         1.10      0.83     [0.83, 0.84]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 16
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_16 1.18 [1.17, 1.18]         1.08      0.85     [0.85, 0.85]
+     NDMI.d_prefire_16 1.19 [1.18, 1.19]         1.09      0.84     [0.84, 0.85]
+ lst_pred_d_prefire_16 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.96     [0.95, 0.96]
+                 slope 1.19 [1.19, 1.20]         1.09      0.84     [0.83, 0.84]
+             northness 1.02 [1.02, 1.03]         1.01      0.98     [0.98, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.03 [1.02, 1.03]         1.01      0.97     [0.97, 0.98]
+
+--------------------------
+
+Model for day: 17
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_17 1.14 [1.13, 1.14]         1.07      0.88     [0.88, 0.88]
+     NDMI.d_prefire_17 1.15 [1.14, 1.15]         1.07      0.87     [0.87, 0.87]
+ lst_pred_d_prefire_17 1.02 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.96     [0.95, 0.96]
+                 slope 1.19 [1.19, 1.20]         1.09      0.84     [0.84, 0.84]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.03 [1.03, 1.03]         1.01      0.97     [0.97, 0.97]
+
+--------------------------
+
+Model for day: 18
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_18 1.11 [1.10, 1.11]         1.05      0.90     [0.90, 0.91]
+     NDMI.d_prefire_18 1.12 [1.12, 1.13]         1.06      0.89     [0.89, 0.89]
+ lst_pred_d_prefire_18 1.03 [1.02, 1.03]         1.01      0.98     [0.97, 0.98]
+             elevation 1.05 [1.04, 1.05]         1.02      0.95     [0.95, 0.96]
+                 slope 1.19 [1.18, 1.19]         1.09      0.84     [0.84, 0.85]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.01 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.03 [1.03, 1.04]         1.02      0.97     [0.96, 0.97]
+
+--------------------------
+
+Model for day: 19
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_19 1.09 [1.09, 1.09]         1.04      0.92     [0.91, 0.92]
+     NDMI.d_prefire_19 1.11 [1.11, 1.11]         1.05      0.90     [0.90, 0.90]
+ lst_pred_d_prefire_19 1.03 [1.03, 1.03]         1.01      0.97     [0.97, 0.98]
+             elevation 1.05 [1.05, 1.05]         1.02      0.95     [0.95, 0.96]
+                 slope 1.18 [1.18, 1.19]         1.09      0.85     [0.84, 0.85]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.99     [0.98, 0.99]
+       burn_doy_scaled 1.04 [1.04, 1.04]         1.02      0.96     [0.96, 0.97]
+
+--------------------------
+
+Model for day: 20
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_20 1.08 [1.08, 1.08]         1.04      0.93     [0.92, 0.93]
+     NDMI.d_prefire_20 1.11 [1.10, 1.11]         1.05      0.90     [0.90, 0.91]
+ lst_pred_d_prefire_20 1.03 [1.03, 1.04]         1.02      0.97     [0.97, 0.97]
+             elevation 1.05 [1.05, 1.05]         1.03      0.95     [0.95, 0.96]
+                 slope 1.18 [1.17, 1.18]         1.09      0.85     [0.85, 0.85]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.05 [1.04, 1.05]         1.02      0.95     [0.95, 0.96]
+
+--------------------------
+
+Model for day: 21
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_21 1.08 [1.07, 1.08]         1.04      0.93     [0.92, 0.93]
+     NDMI.d_prefire_21 1.11 [1.11, 1.11]         1.05      0.90     [0.90, 0.90]
+ lst_pred_d_prefire_21 1.04 [1.03, 1.04]         1.02      0.96     [0.96, 0.97]
+             elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                 slope 1.17 [1.17, 1.18]         1.08      0.85     [0.85, 0.86]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+
+--------------------------
+
+Model for day: 22
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_22 1.08 [1.08, 1.09]         1.04      0.92     [0.92, 0.93]
+     NDMI.d_prefire_22 1.12 [1.11, 1.12]         1.06      0.89     [0.89, 0.90]
+ lst_pred_d_prefire_22 1.04 [1.04, 1.04]         1.02      0.96     [0.96, 0.96]
+             elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                 slope 1.16 [1.16, 1.17]         1.08      0.86     [0.86, 0.86]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.07 [1.06, 1.07]         1.03      0.94     [0.94, 0.94]
+
+--------------------------
+
+Model for day: 23
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_23 1.09 [1.09, 1.10]         1.04      0.92     [0.91, 0.92]
+     NDMI.d_prefire_23 1.13 [1.13, 1.13]         1.06      0.88     [0.88, 0.89]
+ lst_pred_d_prefire_23 1.05 [1.04, 1.05]         1.02      0.96     [0.95, 0.96]
+             elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.16 [1.15, 1.16]         1.08      0.86     [0.86, 0.87]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.98]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.07 [1.07, 1.08]         1.04      0.93     [0.93, 0.93]
+
+--------------------------
+
+Model for day: 24
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_24 1.10 [1.10, 1.11]         1.05      0.91     [0.90, 0.91]
+     NDMI.d_prefire_24 1.14 [1.14, 1.15]         1.07      0.87     [0.87, 0.88]
+ lst_pred_d_prefire_24 1.05 [1.05, 1.05]         1.02      0.95     [0.95, 0.96]
+             elevation 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.15 [1.14, 1.15]         1.07      0.87     [0.87, 0.87]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.08 [1.08, 1.09]         1.04      0.92     [0.92, 0.93]
+
+--------------------------
+
+Model for day: 25
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_25 1.12 [1.12, 1.12]         1.06      0.89     [0.89, 0.90]
+     NDMI.d_prefire_25 1.16 [1.15, 1.16]         1.08      0.86     [0.86, 0.87]
+ lst_pred_d_prefire_25 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+             elevation 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.14 [1.14, 1.14]         1.07      0.88     [0.87, 0.88]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.09 [1.08, 1.09]         1.04      0.92     [0.92, 0.92]
+
+--------------------------
+
+Model for day: 26
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_26 1.14 [1.13, 1.14]         1.07      0.88     [0.88, 0.88]
+     NDMI.d_prefire_26 1.18 [1.17, 1.18]         1.08      0.85     [0.85, 0.85]
+ lst_pred_d_prefire_26 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+             elevation 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.13 [1.13, 1.14]         1.06      0.88     [0.88, 0.89]
+             northness 1.02 [1.02, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.09 [1.09, 1.10]         1.04      0.92     [0.91, 0.92]
+
+--------------------------
+
+Model for day: 27
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_27 1.16 [1.15, 1.16]         1.08      0.87     [0.86, 0.87]
+     NDMI.d_prefire_27 1.19 [1.19, 1.20]         1.09      0.84     [0.83, 0.84]
+ lst_pred_d_prefire_27 1.06 [1.06, 1.06]         1.03      0.94     [0.94, 0.95]
+             elevation 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.12 [1.12, 1.13]         1.06      0.89     [0.89, 0.89]
+             northness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.09 [1.09, 1.10]         1.05      0.91     [0.91, 0.92]
+
+--------------------------
+
+Model for day: 28
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_28 1.18 [1.17, 1.18]         1.08      0.85     [0.85, 0.85]
+     NDMI.d_prefire_28 1.21 [1.21, 1.22]         1.10      0.82     [0.82, 0.83]
+ lst_pred_d_prefire_28 1.06 [1.06, 1.06]         1.03      0.94     [0.94, 0.95]
+             elevation 1.06 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.11 [1.11, 1.12]         1.06      0.90     [0.89, 0.90]
+             northness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.10 [1.09, 1.10]         1.05      0.91     [0.91, 0.92]
+
+--------------------------
+
+Model for day: 29
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_29 1.20 [1.19, 1.20]         1.09      0.84     [0.83, 0.84]
+     NDMI.d_prefire_29 1.23 [1.23, 1.24]         1.11      0.81     [0.81, 0.81]
+ lst_pred_d_prefire_29 1.06 [1.06, 1.07]         1.03      0.94     [0.94, 0.95]
+             elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.94, 0.95]
+                 slope 1.11 [1.10, 1.11]         1.05      0.90     [0.90, 0.91]
+             northness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.10 [1.09, 1.10]         1.05      0.91     [0.91, 0.92]
+
+--------------------------
+
+Model for day: 30
+# Check for Multicollinearity
+
+Low Correlation
+
+                  Term  VIF   VIF 95% CI Increased SE Tolerance Tolerance 95% CI
+     NDVI.d_prefire_30 1.22 [1.21, 1.22]         1.10      0.82     [0.82, 0.82]
+     NDMI.d_prefire_30 1.25 [1.25, 1.26]         1.12      0.80     [0.80, 0.80]
+ lst_pred_d_prefire_30 1.06 [1.06, 1.07]         1.03      0.94     [0.94, 0.95]
+             elevation 1.05 [1.05, 1.06]         1.03      0.95     [0.95, 0.95]
+                 slope 1.10 [1.10, 1.10]         1.05      0.91     [0.91, 0.91]
+             northness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+              eastness 1.02 [1.01, 1.02]         1.01      0.98     [0.98, 0.99]
+       burn_doy_scaled 1.10 [1.09, 1.10]         1.05      0.91     [0.91, 0.92]
+
+--------------------------
+

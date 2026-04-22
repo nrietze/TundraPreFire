@@ -925,8 +925,15 @@ df_all_subset %>% sample_n(1e5) %>%
   theme_cowplot()
 
 ## j. dNBR vs. FRP ----
+
+# Remove duplicate dNBR & FRP values (occur from the HLS time series)
+df_subset_frp_analysis <- df_subset %>% 
+  select(dnbr_corr, rdnbr_corr, rbr, dgemi ,
+         fireid, meanFRP, ObservationID) %>% 
+  distinct()
+
 # Plot meanFRP vs. dNBR
-df_subset %>% sample_n(1e5) %>% 
+df_subset_frp_analysis %>% sample_n(1e5) %>% 
   ggplot(aes(x = !!sym(burn_severity_index),
               y = meanFRP)) +
   geom_point(alpha = 0.2) +

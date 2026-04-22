@@ -156,7 +156,7 @@ df_ee <- df_dnbr_corr %>%
   filter(n_newpixels != 0) # select perimeters with new burn pixels ()
 
 m1 <-lm(log(meanFRP) ~ dNBR_corr, data = df_ee)
-m1 <-lme4::lmer(meanFRP ~ dNBR_corr + (1|fireid), data = df_ee)
+m1 <-lme4::lmer(scale(meanFRP) ~ dNBR_corr + (1|fireid), data = df_ee)
 summary(m1)
 m2 <- lm(log(FRP95) ~ dNBR_corr, data = df_ee)
 summary(m2)
